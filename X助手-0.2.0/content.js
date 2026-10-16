@@ -1,7 +1,10 @@
 const TERMS = [
   "互关", "回关", "互fo", "互粉", "关注我", "求关注", "关注必回", "回粉", "蓝V", "蓝 v", "蓝色认证",
   "你关我回", "关我回", "你关我也关", "互关互粉", "互粉互关", "求互关", "互关团", "互fo团", "秒跟", "开团秒跟",
-  "回复", "互动", "follow back", "follow for follow", "follow me i follow back", "f4f", "follow train", "mutuals"
+  "回复", "互动", "follow back", "follow for follow", "follow me i follow back", "f4f", "follow train", "mutuals",
+  "朋友", "粉", "粉丝", "流量", "串门", "涨粉", "马", "老马", "马斯克", "发贴", "评论", "关", "回",
+  "曝光", "关注", "开口", "出摊", "聊得来", "交友", "浇友", "发帖", "存在感", "闭门造车", "主动", "更推",
+  "回访", "外浇官", "时间线", "不活跃", "混脸熟", "人脉", "诚信", "浇起", "浏览", "真诚换真心"
 ];
 const BADGE = "x-mutual-helper-badge";
 const REPLIED_AUTHORS_KEY = "repliedAuthors";
