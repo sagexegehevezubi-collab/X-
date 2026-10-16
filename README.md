@@ -12,5 +12,6 @@ X助手 Chrome MV3 扩展的版本备份仓库。
 - `v0.2.5`：中转站直接使用 `max_completion_tokens`，并增强字段错误识别
 - `v0.2.6`：中转站返回 `unknown field "messages"` 时自动切换到 Responses `/v1/responses` 协议
 - `v0.2.7`：兼容嵌套 Responses、Anthropic、Gemini 等多种返回文本格式，避免误报空草稿
+- `v0.2.8`：强制关闭流式返回并兼容 SSE 文本增量，修复中转站返回内容无法提取的问题
 
 以后每次迭代保留一个版本目录，并使用对应的 Git 标签记录，便于回退和恢复。

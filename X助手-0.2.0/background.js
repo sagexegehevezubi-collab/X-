@@ -202,6 +202,7 @@ async function generateDraft(postText, replyContext = "post") {
     body: JSON.stringify({
       model,
       temperature: 0.7,
+      stream: false,
       ...((provider === "vibe" || /api\.vibe-subsapi\.net/i.test(endpoint))
         ? { max_completion_tokens: 120 }
         : { max_tokens: 120 }),
@@ -295,7 +296,24 @@ async function requestModelJson(endpoint, options) {
 }
 
 function parseResponseJson(raw) {
-  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch {}
+  // Some gateways still emit Server-Sent Events even when stream:false is sent.
+  const events = raw.split(/\r?\n/)
+    .map((line) => line.replace(/^data:\s*/, "").trim())
+    .filter((line) => line && line !== "[DONE]")
+    .map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  if (!events.length) return {};
+  const deltas = events.map(streamDeltaFromEvent).filter(Boolean).join("");
+  const finalEvent = events[events.length - 1];
+  return deltas ? { ...finalEvent, output_text: deltas } : finalEvent;
+}
+
+function streamDeltaFromEvent(event) {
+  return event?.delta || event?.output_text?.delta || event?.response?.output_text?.delta ||
+    event?.choices?.[0]?.delta?.content || event?.text || "";
 }
 
 function responseErrorText(raw, data) {
@@ -328,6 +346,7 @@ function buildResponsesRequest(endpoint, body) {
     const responsePayload = {
       model: payload.model,
       input,
+      stream: false,
       max_output_tokens: payload.max_output_tokens ?? payload.max_completion_tokens ?? payload.max_tokens
     };
     if (payload.temperature !== undefined) responsePayload.temperature = payload.temperature;
