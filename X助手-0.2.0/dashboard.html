@@ -37,9 +37,10 @@
           <label><input id="homeReplyMutualPosts" type="checkbox"> 功能二：首页内容识别到互关贴进行评论</label>
           <label><input id="autoFollowBack" type="checkbox"> 自动回关新关注者（可与功能二同时运行，限速后每 3 分钟重试）</label>
           <p id="followerMonitorStatus" role="status"></p>
+          <p id="homeReplyDailyCount" class="daily-count" role="status">功能二今日评论：0 条</p>
           <small>自动回关会打开后台关注者标签页，定期刷新检查；沿用下方回关操作间隔（秒），持续扫描，不使用单次回关的数量上限。</small>
           <label><input id="ownPostCommentReply" type="checkbox"> 我的帖子：自动回复他人评论</label>
-          <small>两项首页互关功能可单独运行；同时勾选时先关注作者，再评论帖子。互关帖仅通过关键词识别。我的帖子任务只在自己发布的单帖页面回复他人评论，同一条评论不会重复回复。</small>
+          <small>两项首页互关功能可单独运行；同时勾选时先关注作者，再评论帖子。功能二每条成功评论至少间隔 20 秒。互关帖仅通过关键词识别。我的帖子任务只在自己发布的单帖页面回复他人评论，同一条评论不会重复回复。</small>
         </fieldset>
         <div class="category-actions">
           <button class="primary" type="button" data-start-task="engagement">开始关注 / 评论</button>

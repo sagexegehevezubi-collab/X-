@@ -39,6 +39,9 @@ const OWN_POST_REPLIED_COMMENTS_KEY = "repliedOwnPostComments";
 const relationshipQueued = new Set();
 const relationshipTried = new Set();
 const MAX_ACTIONS_PER_PAGE = 20;
+const HOME_REPLY_INTERVAL_MS = 20_000;
+const HOME_REPLY_DAILY_STATS_KEY = "homeReplyDailyStats";
+const HOME_REPLY_LAST_SENT_KEY = "homeReplyLastSentAt";
 const AUTO_ADVANCE_INTERVAL_MS = 15000;
 const ADVANCE_SETTLE_MS = 2500;
 const FOLLOW_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -51,6 +54,40 @@ let stalledAdvances = 0;
 let previousFeedSignature = "";
 let lastActivityAt = Date.now();
 let lastFeedStatusAt = 0;
+
+function localDateKey() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+async function waitForHomeReplyInterval(generation) {
+  const state = await chrome.storage.local.get({ [HOME_REPLY_LAST_SENT_KEY]: 0 });
+  let remaining = Math.max(0, HOME_REPLY_INTERVAL_MS - (Date.now() - Number(state[HOME_REPLY_LAST_SENT_KEY] || 0)));
+  if (!remaining) return true;
+  await chrome.storage.local.set({ lastAutomationStatus: `功能二限速等待中：下一条评论还需 ${Math.ceil(remaining / 1000)} 秒` });
+  while (remaining > 0) {
+    if (!isTaskActive(generation)) return false;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(1000, remaining)));
+    const latest = await chrome.storage.local.get({ [HOME_REPLY_LAST_SENT_KEY]: 0 });
+    remaining = Math.max(0, HOME_REPLY_INTERVAL_MS - (Date.now() - Number(latest[HOME_REPLY_LAST_SENT_KEY] || 0)));
+  }
+  return isTaskActive(generation);
+}
+
+async function recordHomeReplySuccess() {
+  const date = localDateKey();
+  const state = await chrome.storage.local.get({
+    [HOME_REPLY_DAILY_STATS_KEY]: { date, count: 0 }
+  });
+  const previous = state[HOME_REPLY_DAILY_STATS_KEY] || {};
+  const count = previous.date === date ? Math.max(0, Number(previous.count) || 0) + 1 : 1;
+  await chrome.storage.local.set({
+    [HOME_REPLY_LAST_SENT_KEY]: Date.now(),
+    [HOME_REPLY_DAILY_STATS_KEY]: { date, count }
+  });
+}
 
 function visibleControls() {
   return [...document.querySelectorAll('button,[role="button"],[role="tab"],[role="menuitem"],[role="option"]')]
@@ -343,7 +380,12 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
   const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText });
   if (!isTaskActive(generation)) return;
   if (result?.error || !result?.draft) throw new Error(result?.error || "模型没有返回回复");
+  if (shouldReply && settings.homeReplyMutualPosts && location.pathname === "/home" &&
+    !(await waitForHomeReplyInterval(generation))) return;
   if (await sendReplyToPost(article, result.draft, generation) === false) return;
+  if (shouldReply && settings.homeReplyMutualPosts && location.pathname === "/home") {
+    await recordHomeReplySuccess();
+  }
   const postReplyHistory = dedupeByPost
     ? { [REPLIED_POSTS_KEY]: [...new Set([...repliedPostIds, postId])].slice(-5000) }
     : {};

@@ -23,6 +23,19 @@ let activeTabIsX = false;
 let taskOptionsReady = false;
 let statusReadVersion = 0;
 
+function localDateKey() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+async function updateHomeReplyDailyCount() {
+  const { homeReplyDailyStats = {} } = await chrome.storage.local.get({ homeReplyDailyStats: {} });
+  const count = homeReplyDailyStats.date === localDateKey() ? Math.max(0, Number(homeReplyDailyStats.count) || 0) : 0;
+  document.getElementById("homeReplyDailyCount").textContent = `功能二今日评论：${count} 条`;
+}
+
 async function loadTaskOptions() {
   const values = await chrome.storage.local.get([
     "autoFollowBack", "homeFollowMutualPosts", "homeReplyMutualPosts", "mutualTaskEnabled", "homeAutoFollowMutual", "ownPostCommentReply", "autoReply", "autoFollow",
@@ -56,6 +69,7 @@ async function loadTaskOptions() {
 async function updateTaskStatus() {
   const readVersion = ++statusReadVersion;
   const monitor = await chrome.storage.local.get({ followerMonitorStatus: "" });
+  await updateHomeReplyDailyCount();
   const { automationRunning = false, automationTask = "engagement", lastAutomationError = "", lastAutomationStatus = "" } = await chrome.storage.local.get({
     automationRunning: false,
     automationTask: "engagement",
@@ -251,7 +265,7 @@ for (const button of stopTaskButtons) {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus) updateTaskStatus();
+  if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus || changes.homeReplyDailyStats) updateTaskStatus();
 });
 
 idleRefreshMinutes.addEventListener("change", () => {
