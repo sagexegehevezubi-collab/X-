@@ -225,7 +225,7 @@ async function generateDraft(postText, replyContext = "post") {
   });
 
   let draft = extractModelText(data);
-  if (!draft) throw new Error("模型没有返回草稿");
+  if (!draft) throw new Error("模型返回了空内容（接口已响应，但没有识别到文本字段）");
   if (emotionPrefix && !startsWithReplyEmotion(draft)) draft = `${emotionPrefix} ${draft}`;
   return draft;
 }
@@ -351,23 +351,24 @@ function replaceMaxTokensField(body) {
 }
 
 function extractModelText(data) {
-  const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ??
-    data?.output_text ?? data?.response;
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) {
-    return content.map((part) => typeof part === "string" ? part : part?.text || part?.content || "")
-      .join("").trim();
+  return textFromResponseValue(data);
+}
+
+function textFromResponseValue(value, depth = 0) {
+  if (depth > 10 || value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value.map((item) => textFromResponseValue(item, depth + 1)).filter(Boolean).join("").trim();
   }
-  if (content && typeof content === "object") return String(content.text || content.content || "").trim();
-  if (Array.isArray(data?.output)) {
-    const text = data.output.flatMap((item) => {
-      if (typeof item === "string") return [item];
-      if (typeof item?.text === "string") return [item.text];
-      if (!Array.isArray(item?.content)) return [];
-      return item.content.flatMap((part) => typeof part === "string"
-        ? [part]
-        : [part?.text || part?.content || part?.output_text || ""]);
-    }).join("").trim();
+  if (typeof value !== "object") return "";
+  // These keys cover Chat Completions, Responses, Anthropic and Gemini-compatible
+  // wrappers, including gateways that nest the upstream response under data/result.
+  for (const key of [
+    "output_text", "text", "content", "message", "output", "response",
+    "choices", "candidates", "parts", "data", "result", "value"
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const text = textFromResponseValue(value[key], depth + 1);
     if (text) return text;
   }
   return "";
