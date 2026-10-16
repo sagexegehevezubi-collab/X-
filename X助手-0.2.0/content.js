@@ -271,10 +271,10 @@ function queueOwnPostCommentReply(article) {
   });
 }
 
-function processPost(article) {
+function processPost(article, allowAutomatic = scanningRound) {
   if (!article.isConnected || settings.automationTask !== "engagement") return;
   if (settings.automationTask === "engagement" && settings.ownPostCommentReply && isOwnPostThreadPage()) {
-    queueOwnPostCommentReply(article);
+    if (allowAutomatic) queueOwnPostCommentReply(article);
     return;
   }
   const text = findPostText(article);
@@ -307,15 +307,17 @@ function processPost(article) {
   const mutualIntent = hits.length > 0;
   const shouldFollow = mutualIntent && isHomepage && settings.homeFollowMutualPosts;
   const shouldReply = mutualIntent && isHomepage && settings.homeReplyMutualPosts;
-  if (isTaskFeedPage() && settings.automationRunning && (shouldFollow || shouldReply) && postId && !actedPosts.has(postId)) {
+  if (allowAutomatic && isTaskFeedPage() && settings.automationRunning &&
+    (shouldFollow || shouldReply) && postId && !actedPosts.has(postId)) {
     actedPosts.add(postId);
     const generation = taskGeneration;
     pending = pending.then(async () => {
-      if (!isTaskActive(generation) || !article.isConnected || actionsThisPage >= MAX_ACTIONS_PER_PAGE) {
+      const liveArticle = getPostContainers().find((post) => getPostId(post) === postId);
+      if (!isTaskActive(generation) || !liveArticle || actionsThisPage >= MAX_ACTIONS_PER_PAGE) {
         actedPosts.delete(postId);
         return;
       }
-      await runAutomaticActions(article, text, generation, shouldFollow, shouldReply, postId, true);
+      await runAutomaticActions(liveArticle, findPostText(liveArticle), generation, shouldFollow, shouldReply, postId, true);
     }).catch((error) => {
       console.error("X Mutual Helper automatic action failed", error);
       scheduleErrorRecovery(error, generation);
@@ -731,10 +733,12 @@ async function runEngagementRound(generation) {
   taskFeedUrl = location.href;
   startFollowerMonitor();
   try {
-    // Freeze this round so DOM mutations cannot keep extending its queue.
-    const posts = getPostContainers();
+    // Keep stable IDs for the round, then re-query each article before acting.
+    // X virtualizes the timeline and replaces article nodes after scrolling or replying;
+    // retaining the original DOM nodes caused later matching posts to be skipped.
+    const postIds = [...new Set(getPostContainers().map((post) => getPostId(post)).filter(Boolean))];
     actionsThisPage = 0;
-    for (let index = 0; index < posts.length; index += 1) {
+    for (let index = 0; index < postIds.length; index += 1) {
       if (!isTaskActive(generation) || !isTaskFeedPage()) return;
       if (settings.homeFollowMutualPosts && location.pathname === "/home") {
         const { followCooldownUntil = 0 } = await chrome.storage.local.get({ followCooldownUntil: 0 });
@@ -747,9 +751,11 @@ async function runEngagementRound(generation) {
         scheduleAutoAdvance(generation, 1000);
         return;
       }
-      await chrome.storage.local.set({ lastAutomationError: "", lastAutomationStatus: `本轮正在识别并处理第 ${index + 1}/${posts.length} 条帖子` });
+      const article = getPostContainers().find((post) => getPostId(post) === postIds[index]);
+      if (!article) continue;
+      await chrome.storage.local.set({ lastAutomationError: "", lastAutomationStatus: `本轮正在识别并处理第 ${index + 1}/${postIds.length} 条帖子` });
       scanningRound = true;
-      try { processPost(posts[index]); } finally { scanningRound = false; }
+      try { processPost(article, true); } finally { scanningRound = false; }
       // Finish queued actions before processing the next post.
       let current;
       do {
@@ -1146,7 +1152,7 @@ function getCurrentUsername() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "taskHandshake") {
     sendResponse({
-      controllerVersion: 35,
+      controllerVersion: 36,
       username: getCurrentUsername(),
       identityAvailable: Boolean(getCurrentUsername()),
       feedSupported: isTaskFeedPage(),
@@ -1198,7 +1204,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? `正在扫描你发布的帖子评论，当前找到 ${ownCommentCount} 条他人评论`
       : null;
   sendResponse({
-    controllerVersion: 35,
+    controllerVersion: 36,
     running: settings.automationRunning,
     supported,
     status,
@@ -1312,7 +1318,6 @@ function scan() {
     scanRelationshipList(settings.automationTask, taskGeneration);
     return;
   }
-  if (settings.automationRunning && !scanningRound) return;
   const posts = getPostContainers();
   if (settings.automationRunning && settings.automationTask === "engagement" && Date.now() - lastFeedStatusAt >= 10000) {
     const matches = posts.filter((post) => {
@@ -1326,7 +1331,9 @@ function scan() {
     });
     lastFeedStatusAt = Date.now();
   }
-  posts.forEach(processPost);
+  // MutationObserver and scroll settling must still annotate newly virtualized posts.
+  // Automatic actions remain restricted to the controlled engagement round above.
+  posts.forEach((post) => processPost(post, scanningRound));
 }
 
 scan();
