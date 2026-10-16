@@ -240,10 +240,24 @@ async function requestModelJson(endpoint, options) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    const response = await fetch(chatCompletionsEndpoint(endpoint), { ...options, signal: controller.signal });
-    const raw = await response.text();
+    let response = await fetch(chatCompletionsEndpoint(endpoint), { ...options, signal: controller.signal });
+    let raw = await response.text();
     let data;
     try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
+    // Some OpenAI-compatible gateways use the newer field name and reject max_tokens.
+    // Retry only for this explicit schema error so other provider failures are not duplicated.
+    if (!response.ok && response.status === 400 && /unknown field\s+["']max_tokens["']/i.test(raw)) {
+      const retryBody = replaceMaxTokensField(options.body);
+      if (retryBody) {
+        response = await fetch(chatCompletionsEndpoint(endpoint), {
+          ...options,
+          body: retryBody,
+          signal: controller.signal
+        });
+        raw = await response.text();
+        try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
+      }
+    }
     if (!response.ok) {
       const detail = data?.error?.message || data?.message || raw.slice(0, 160);
       throw new Error(`API 返回 ${response.status}${detail ? `：${detail}` : "，请检查模型、密钥和服务状态"}`);
@@ -254,6 +268,19 @@ async function requestModelJson(endpoint, options) {
     throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function replaceMaxTokensField(body) {
+  if (typeof body !== "string") return null;
+  try {
+    const payload = JSON.parse(body);
+    if (!Object.prototype.hasOwnProperty.call(payload, "max_tokens")) return null;
+    payload.max_completion_tokens = payload.max_tokens;
+    delete payload.max_tokens;
+    return JSON.stringify(payload);
+  } catch {
+    return null;
   }
 }
 
