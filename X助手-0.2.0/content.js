@@ -44,6 +44,7 @@ const HOME_REPLY_DAILY_STATS_KEY = "homeReplyDailyStats";
 const HOME_REPLY_LAST_SENT_KEY = "homeReplyLastSentAt";
 const AUTO_ADVANCE_INTERVAL_MS = 15000;
 const ADVANCE_SETTLE_MS = 2500;
+const COMPOSER_RECOVERY_DELAY_MS = 20000;
 const FOLLOW_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 let autoAdvanceTimer = null;
 let relationshipTimer = null;
@@ -680,13 +681,19 @@ function isTaskActive(generation) {
   return settings.automationRunning && !recovering && generation === taskGeneration;
 }
 
+function isComposerRecoveryError(error) {
+  return /回复框定位超时|回复编辑器|回复按钮|回复框|行内编辑器|回复发送/.test(String(error?.message || error || ""));
+}
+
 function scheduleErrorRecovery(error, generation) {
   if (!settings.automationRunning || generation !== taskGeneration || recovering) return;
   stopAutoAdvance();
   recovering = true;
+  const recoveryDelay = isComposerRecoveryError(error) ? COMPOSER_RECOVERY_DELAY_MS : 30000;
+  const recoverySeconds = Math.ceil(recoveryDelay / 1000);
   chrome.storage.local.set({
     lastAutomationError: String(error?.message || "任务失败").slice(0, 240),
-    lastAutomationStatus: "任务恢复中：30 秒后刷新 X 并重试；点击停止可取消"
+    lastAutomationStatus: `任务恢复中：${recoverySeconds} 秒后刷新 X 并重试；点击停止可取消`
   }).catch(() => {});
   recoveryTimer = setTimeout(async () => {
     recoveryTimer = null;
@@ -707,7 +714,7 @@ function scheduleErrorRecovery(error, generation) {
       recovering = false;
       scheduleErrorRecovery(nextError, generation);
     }
-  }, 30000);
+  }, recoveryDelay);
 }
 
 function scheduleAutoAdvance(generation, delay = AUTO_ADVANCE_INTERVAL_MS) {
