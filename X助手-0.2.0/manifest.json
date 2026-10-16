@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "X助手",
+  "version": "0.2.0",
+  "description": "用于 X 平台的效率辅助工具。",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://xbangdan.com/*",
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "https://api.openai.com/*",
+    "https://api.daitu.cc/*",
+    "https://heidawang.top/*",
+    "https://api.vibe-subsapi.net/*",
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_title": "X助手",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "follow-rate-limit.js",
+        "follower-monitor.js",
+        "ranking-task.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
