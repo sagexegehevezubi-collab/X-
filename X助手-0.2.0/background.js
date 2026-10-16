@@ -179,7 +179,7 @@ async function generateDraft(postText, replyContext = "post") {
     if (!text) throw new Error("请先在设置中填写固定回复内容并保存。");
     return text;
   }
-  const { apiKey, model, endpoint, authMode = "bearer", authHeaderName = "Authorization" } = await chrome.storage.local.get({
+  const { apiKey, model, endpoint, provider = "", authMode = "bearer", authHeaderName = "Authorization" } = await chrome.storage.local.get({
     apiKey: "",
     model: "",
     endpoint: "https://api.vibe-subsapi.net/v1/chat/completions"
@@ -202,7 +202,9 @@ async function generateDraft(postText, replyContext = "post") {
     body: JSON.stringify({
       model,
       temperature: 0.7,
-      max_tokens: 120,
+      ...((provider === "vibe" || /api\.vibe-subsapi\.net/i.test(endpoint))
+        ? { max_completion_tokens: 120 }
+        : { max_tokens: 120 }),
       messages: [
         { role: "system", content: [
           replyContext === "comment"
@@ -246,7 +248,8 @@ async function requestModelJson(endpoint, options) {
     try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
     // Some OpenAI-compatible gateways use the newer field name and reject max_tokens.
     // Retry only for this explicit schema error so other provider failures are not duplicated.
-    if (!response.ok && response.status === 400 && /unknown field\s+["']max_tokens["']/i.test(raw)) {
+    const errorText = [raw, data?.error?.message, data?.message].filter(Boolean).join(" ");
+    if (!response.ok && response.status === 400 && /unknown field[^\n]*max_tokens/i.test(errorText)) {
       const retryBody = replaceMaxTokensField(options.body);
       if (retryBody) {
         response = await fetch(chatCompletionsEndpoint(endpoint), {
