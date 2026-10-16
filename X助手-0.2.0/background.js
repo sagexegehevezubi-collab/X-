@@ -242,23 +242,43 @@ async function requestModelJson(endpoint, options) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    let response = await fetch(chatCompletionsEndpoint(endpoint), { ...options, signal: controller.signal });
+    let requestUrl = chatCompletionsEndpoint(endpoint);
+    let requestBody = options.body;
+    let response = await fetch(requestUrl, { ...options, body: requestBody, signal: controller.signal });
     let raw = await response.text();
-    let data;
-    try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
+    let data = parseResponseJson(raw);
     // Some OpenAI-compatible gateways use the newer field name and reject max_tokens.
     // Retry only for this explicit schema error so other provider failures are not duplicated.
-    const errorText = [raw, data?.error?.message, data?.message].filter(Boolean).join(" ");
+    let errorText = responseErrorText(raw, data);
     if (!response.ok && response.status === 400 && /unknown field[^\n]*max_tokens/i.test(errorText)) {
-      const retryBody = replaceMaxTokensField(options.body);
-      if (retryBody) {
-        response = await fetch(chatCompletionsEndpoint(endpoint), {
+      requestBody = replaceMaxTokensField(requestBody);
+      if (requestBody) {
+        response = await fetch(requestUrl, {
           ...options,
-          body: retryBody,
+          body: requestBody,
           signal: controller.signal
         });
         raw = await response.text();
-        try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
+        data = parseResponseJson(raw);
+        errorText = responseErrorText(raw, data);
+      }
+    }
+    // A few gateways route newer models through the OpenAI Responses protocol and
+    // return this Go JSON decoder error when Chat Completions' `messages` field is used.
+    // Retry against /responses only for that explicit schema mismatch; standard
+    // OpenAI, DeepSeek, 豆包 and other Chat Completions providers keep their normal path.
+    if (!response.ok && response.status === 400 && /unknown field[^\n]*["']?messages/i.test(errorText)) {
+      const retry = buildResponsesRequest(endpoint, requestBody);
+      if (retry) {
+        requestUrl = retry.url;
+        requestBody = retry.body;
+        response = await fetch(requestUrl, {
+          ...options,
+          body: requestBody,
+          signal: controller.signal
+        });
+        raw = await response.text();
+        data = parseResponseJson(raw);
       }
     }
     if (!response.ok) {
@@ -271,6 +291,49 @@ async function requestModelJson(endpoint, options) {
     throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function parseResponseJson(raw) {
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+
+function responseErrorText(raw, data) {
+  return [raw, data?.error?.message, data?.message].filter(Boolean).join(" ");
+}
+
+function responsesEndpoint(endpoint) {
+  const url = new URL(String(endpoint || "").trim());
+  const path = url.pathname.replace(/\/+$/, "");
+  if (!path || path === "/") url.pathname = "/v1/responses";
+  else if (/\/chat\/completions$/i.test(path)) url.pathname = path.replace(/\/chat\/completions$/i, "/responses");
+  else if (/\/(?:v1|v3|api\/v3)$/i.test(path)) url.pathname = `${path}/responses`;
+  else if (!/\/responses$/i.test(path)) url.pathname = `${path}/responses`;
+  return url.toString();
+}
+
+function buildResponsesRequest(endpoint, body) {
+  if (typeof body !== "string") return null;
+  try {
+    const payload = JSON.parse(body);
+    if (!Array.isArray(payload.messages)) return null;
+    const input = payload.messages.map((message) => ({
+      role: message.role || "user",
+      content: typeof message.content === "string"
+        ? message.content
+        : Array.isArray(message.content)
+          ? message.content.map((part) => typeof part === "string" ? part : part?.text || part?.content || "").join("")
+          : String(message.content || "")
+    }));
+    const responsePayload = {
+      model: payload.model,
+      input,
+      max_output_tokens: payload.max_output_tokens ?? payload.max_completion_tokens ?? payload.max_tokens
+    };
+    if (payload.temperature !== undefined) responsePayload.temperature = payload.temperature;
+    return { url: responsesEndpoint(endpoint), body: JSON.stringify(responsePayload) };
+  } catch {
+    return null;
   }
 }
 
@@ -289,12 +352,23 @@ function replaceMaxTokensField(body) {
 
 function extractModelText(data) {
   const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ??
-    data?.output?.[0]?.content ?? data?.output_text ?? data?.response;
+    data?.output_text ?? data?.response;
   if (typeof content === "string") return content.trim();
   if (Array.isArray(content)) {
     return content.map((part) => typeof part === "string" ? part : part?.text || part?.content || "")
       .join("").trim();
   }
   if (content && typeof content === "object") return String(content.text || content.content || "").trim();
+  if (Array.isArray(data?.output)) {
+    const text = data.output.flatMap((item) => {
+      if (typeof item === "string") return [item];
+      if (typeof item?.text === "string") return [item.text];
+      if (!Array.isArray(item?.content)) return [];
+      return item.content.flatMap((part) => typeof part === "string"
+        ? [part]
+        : [part?.text || part?.content || part?.output_text || ""]);
+    }).join("").trim();
+    if (text) return text;
+  }
   return "";
 }

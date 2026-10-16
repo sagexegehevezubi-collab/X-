@@ -10,4 +10,6 @@
 
 设置页支持 OpenAI Chat Completions 兼容接口，可直接选择 DeepSeek、豆包（火山方舟）、OpenRouter 或自定义服务。选择豆包时，API 地址使用火山方舟地址，模型名称填写控制台创建的 Endpoint ID（例如 `ep-xxxx`）。自定义服务需要填写完整的 HTTPS 接口地址、模型名称和对应的 API Key；兼容本机网关时可使用 `http://localhost`。
 
+中转站如果返回 `unknown field "messages"`，扩展会自动把请求转换为 OpenAI Responses 格式并重试 `/v1/responses`，无需手动改接口地址。
+
 
