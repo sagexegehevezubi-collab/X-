@@ -40,8 +40,12 @@ const relationshipQueued = new Set();
 const relationshipTried = new Set();
 const MAX_ACTIONS_PER_PAGE = 20;
 const HOME_REPLY_INTERVAL_MS = 20_000;
+const HOME_REPLY_RECENT_WINDOW_MS = 4 * 60 * 60 * 1000;
+const HOME_REPLY_REFRESH_EVERY = 10;
 const HOME_REPLY_DAILY_STATS_KEY = "homeReplyDailyStats";
 const HOME_REPLY_LAST_SENT_KEY = "homeReplyLastSentAt";
+const HOME_REPLY_REFRESH_COUNT_KEY = "homeReplyRefreshCount";
+const HOME_REPLY_REFRESH_REQUESTED_KEY = "homeReplyRefreshRequested";
 const AUTO_ADVANCE_INTERVAL_MS = 15000;
 const ADVANCE_SETTLE_MS = 2500;
 const COMPOSER_RECOVERY_DELAY_MS = 20000;
@@ -80,14 +84,28 @@ async function waitForHomeReplyInterval(generation) {
 async function recordHomeReplySuccess() {
   const date = localDateKey();
   const state = await chrome.storage.local.get({
-    [HOME_REPLY_DAILY_STATS_KEY]: { date, count: 0 }
+    [HOME_REPLY_DAILY_STATS_KEY]: { date, count: 0 },
+    [HOME_REPLY_REFRESH_COUNT_KEY]: 0
   });
   const previous = state[HOME_REPLY_DAILY_STATS_KEY] || {};
   const count = previous.date === date ? Math.max(0, Number(previous.count) || 0) + 1 : 1;
+  const refreshCount = Math.max(0, Number(state[HOME_REPLY_REFRESH_COUNT_KEY]) || 0) + 1;
+  const refreshRequested = refreshCount >= HOME_REPLY_REFRESH_EVERY;
   await chrome.storage.local.set({
     [HOME_REPLY_LAST_SENT_KEY]: Date.now(),
-    [HOME_REPLY_DAILY_STATS_KEY]: { date, count }
+    [HOME_REPLY_DAILY_STATS_KEY]: { date, count },
+    [HOME_REPLY_REFRESH_COUNT_KEY]: refreshCount,
+    [HOME_REPLY_REFRESH_REQUESTED_KEY]: refreshRequested
   });
+  return refreshRequested;
+}
+
+function isRecentHomeReplyPost(article) {
+  const time = getOuterPostTime(article);
+  const timestamp = Date.parse(time?.getAttribute("datetime") || "");
+  if (!Number.isFinite(timestamp)) return false;
+  const age = Date.now() - timestamp;
+  return age >= -5 * 60 * 1000 && age <= HOME_REPLY_RECENT_WINDOW_MS;
 }
 
 function visibleControls() {
@@ -307,7 +325,7 @@ function processPost(article, allowAutomatic = scanningRound) {
 
   const mutualIntent = hits.length > 0;
   const shouldFollow = mutualIntent && isHomepage && settings.homeFollowMutualPosts;
-  const shouldReply = mutualIntent && isHomepage && settings.homeReplyMutualPosts;
+  const shouldReply = mutualIntent && isHomepage && settings.homeReplyMutualPosts && isRecentHomeReplyPost(article);
   if (allowAutomatic && isTaskFeedPage() && settings.automationRunning &&
     (shouldFollow || shouldReply) && postId && !actedPosts.has(postId)) {
     actedPosts.add(postId);
@@ -387,7 +405,12 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
     !(await waitForHomeReplyInterval(generation))) return;
   if (await sendReplyToPost(article, result.draft, generation) === false) return;
   if (shouldReply && settings.homeReplyMutualPosts && location.pathname === "/home") {
-    await recordHomeReplySuccess();
+    const refreshRequested = await recordHomeReplySuccess();
+    if (refreshRequested) {
+      await chrome.storage.local.set({
+        lastAutomationStatus: `已成功回复 ${HOME_REPLY_REFRESH_EVERY} 条帖子，准备刷新 X 界面继续任务`
+      });
+    }
   }
   const postReplyHistory = dedupeByPost
     ? { [REPLIED_POSTS_KEY]: [...new Set([...repliedPostIds, postId])].slice(-5000) }
@@ -770,6 +793,16 @@ async function runEngagementRound(generation) {
         await current;
         if (!isTaskActive(generation)) return;
       } while (current !== pending);
+      const refreshState = await chrome.storage.local.get({ [HOME_REPLY_REFRESH_REQUESTED_KEY]: false });
+      if (refreshState[HOME_REPLY_REFRESH_REQUESTED_KEY] && settings.homeReplyMutualPosts && location.pathname === "/home") {
+        await chrome.storage.local.set({
+          [HOME_REPLY_REFRESH_COUNT_KEY]: 0,
+          [HOME_REPLY_REFRESH_REQUESTED_KEY]: false,
+          lastAutomationStatus: `已成功回复 ${HOME_REPLY_REFRESH_EVERY} 条帖子，正在刷新 X 界面…`
+        });
+        await refreshCurrentView(generation, true);
+        return;
+      }
     }
     if (!isTaskActive(generation)) return;
     if (settings.homeFollowMutualPosts && location.pathname === "/home") {
@@ -851,8 +884,12 @@ async function autoAdvance(generation) {
   scheduleAutoAdvance(generation, nextRoundDelay);
 }
 
-async function refreshCurrentView(generation) {
+async function refreshCurrentView(generation, forceReload = false) {
   if (!isTaskActive(generation)) return;
+  if (forceReload) {
+    location.reload();
+    return;
+  }
   if (location.pathname === "/home") {
     const findHomeLink = () => {
       const link = document.querySelector('[data-testid="AppTabBar_Home_Link"], a[href="/home"]');
@@ -1159,7 +1196,7 @@ function getCurrentUsername() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "taskHandshake") {
     sendResponse({
-      controllerVersion: 36,
+      controllerVersion: 37,
       username: getCurrentUsername(),
       identityAvailable: Boolean(getCurrentUsername()),
       feedSupported: isTaskFeedPage(),
@@ -1195,8 +1232,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const matchCount = posts.filter((post) => {
     if (settings.ownPostCommentReply && ownThread) return false;
     const hits = matchedTerms(findPostText(post));
-    return location.pathname === "/home" && (hits.length > 0) &&
-      (settings.homeFollowMutualPosts || settings.homeReplyMutualPosts);
+    return location.pathname === "/home" && hits.length > 0 &&
+      (settings.homeFollowMutualPosts || (settings.homeReplyMutualPosts && isRecentHomeReplyPost(post)));
   }).length + (settings.ownPostCommentReply ? ownCommentCount : 0);
   const relationshipTask = ["unfollowNonMutual", "followBackFollowers"].includes(settings.automationTask);
   const expectedRelationshipPath = relationshipTask ? relationshipListPath(settings.automationTask) : null;
@@ -1211,7 +1248,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? `正在扫描你发布的帖子评论，当前找到 ${ownCommentCount} 条他人评论`
       : null;
   sendResponse({
-    controllerVersion: 36,
+    controllerVersion: 37,
     running: settings.automationRunning,
     supported,
     status,
@@ -1299,6 +1336,10 @@ function updateTaskState(running) {
     actedPosts.clear();
     relationshipQueued.clear();
     ownPostReplyQueued.clear();
+    chrome.storage.local.set({
+      [HOME_REPLY_REFRESH_COUNT_KEY]: 0,
+      [HOME_REPLY_REFRESH_REQUESTED_KEY]: false
+    }).catch(() => {});
   }
 }
 
@@ -1329,8 +1370,8 @@ function scan() {
   if (settings.automationRunning && settings.automationTask === "engagement" && Date.now() - lastFeedStatusAt >= 10000) {
     const matches = posts.filter((post) => {
       const hits = matchedTerms(findPostText(post));
-      return (location.pathname === "/home" && (settings.homeFollowMutualPosts || settings.homeReplyMutualPosts) &&
-        (hits.length > 0)) ||
+      return (location.pathname === "/home" && hits.length > 0 &&
+        (settings.homeFollowMutualPosts || (settings.homeReplyMutualPosts && isRecentHomeReplyPost(post)))) ||
         (settings.ownPostCommentReply && isOwnPostThreadPage() && getPostId(post)?.match(/\/status\/(\d+)/)?.[1] !== ownPostThreadContext()?.postId);
     }).length;
     chrome.storage.local.set({
