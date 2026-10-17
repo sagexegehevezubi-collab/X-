@@ -85,7 +85,12 @@ async function updateTaskStatus() {
     unfollowNonMutual: "取消单向关注",
     followBackFollowers: "回关关注者"
   };
-  taskStatus.textContent = automationRunning ? `运行中的任务：${taskLabels[automationTask] || automationTask}` : "任务状态：已停止";
+  const taskLabel = taskLabels[automationTask] || automationTask;
+  const currentAction = lastAutomationStatus || (automationRunning ? "正在等待内容脚本响应…" : "暂无上一条任务记录");
+  const errorLine = lastAutomationError ? `\n最近错误：${lastAutomationError}` : "";
+  taskStatus.textContent = automationRunning
+    ? `任务状态：运行中\n任务类型：${taskLabel}\n当前动作：${currentAction}${errorLine}`
+    : `任务状态：已停止\n上次状态：${currentAction}${errorLine}`;
   const actionMessage = [lastAutomationStatus, lastAutomationError
     ? `最近错误：${lastAutomationError}` : ""].filter(Boolean).join("\n");
   actionStatus.hidden = !actionMessage;

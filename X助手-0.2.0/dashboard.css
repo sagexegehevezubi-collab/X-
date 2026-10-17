@@ -24,7 +24,7 @@ h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
 .target-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 650; }
 #targetTab, #idleRefreshMinutes { width: 100%; padding: 10px 12px; border: 1px solid #cfd9de; border-radius: 8px; background: white; color: inherit; font: inherit; }
 #pageStatus { min-height: 24px; margin: 0 0 5px; color: #536471; }
-#taskStatus { margin: 0 0 8px; font-weight: 650; }
+#taskStatus { min-height: 24px; margin: 0 0 8px; font-weight: 650; line-height: 1.65; white-space: pre-line; overflow-wrap: anywhere; }
 #actionStatus { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: #fff5e8; color: #895400; font-size: 13px; overflow-wrap: anywhere; }
 .task-options legend, .filter-options summary { padding: 0 5px; font-weight: 700; }
 .task-options label { display: flex; gap: 9px; align-items: flex-start; margin: 9px 0; cursor: pointer; }
