@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X助手",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "用于 X 平台的效率辅助工具。",
   "permissions": [
     "storage",

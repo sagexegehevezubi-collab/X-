@@ -1,5 +1,6 @@
 importScripts("providers.js", "reply-emotion-pool.js", "ranking-pool.js");
 importScripts("follow-rate-limit.js");
+const AI_REPLY_SUFFIX = "记得回踩喔";
 const followRateRuleReady = chrome.storage.local.get(["followRateRuleVersion", "lastAutomationError", "rankingJob", "automationTask"]).then(async (state) => {
   if (state.automationTask === "hashtags") {
     await chrome.storage.local.set({ automationRunning: false, automationTask: "engagement", automationTargetTabId: null,
@@ -228,6 +229,7 @@ async function generateDraft(postText, replyContext = "post") {
   let draft = extractModelText(data);
   if (!draft) throw new Error("模型返回了空内容（接口已响应，但没有识别到文本字段）");
   if (emotionPrefix && !startsWithReplyEmotion(draft)) draft = `${emotionPrefix} ${draft}`;
+  if (!draft.includes(AI_REPLY_SUFFIX)) draft = `${draft.replace(/\s+$/, "")} ${AI_REPLY_SUFFIX}`;
   return draft;
 }
 
