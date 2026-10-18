@@ -8,9 +8,10 @@ async function rankingPoolState() {
   return chrome.storage.local.get(["rankingPool", "automationRunning", "automationTask", "automationTargetTabId", "rankingJob"]);
 }
 async function publishRankingPool(pool) {
-  const completed = pool.workers.filter((worker) => worker.done).length;
-  const text = `榜单并行：${pool.workers.length - completed} 路运行，${completed}/${pool.workers.length} 路完成\n` +
-    pool.workers.map((worker, index) => `${index + 1}：${worker.status || "准备中"}`).join("\n");
+  const completed = pool.workers.reduce((sum, worker) => sum + Math.max(0, Number(worker.completed) || 0), 0);
+  const total = pool.workers.reduce((sum, worker) => sum + Math.max(0, Number(worker.total) || 0), 0);
+  const text = `榜单进度：${completed}/${total || "?"} 位博主已完成\n` +
+    pool.workers.map((worker, index) => `第 ${index + 1} 路：${worker.status || "准备中"}（${worker.completed || 0}/${worker.total || "?"}）`).join("\n");
   await chrome.storage.local.set({ rankingPool: pool, rankingStatus: text, lastAutomationStatus: text, lastAutomationError: "" });
 }
 async function startRankingPool(senderTabId) {
@@ -32,7 +33,7 @@ async function startRankingPool(senderTabId) {
       const queue = job.queue.filter((_, position) => position % count === index);
       const jobKey = `rankingWorkerJob:${job.id}:${index}`;
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });
-      pool.workers.push({ tabId: tab.id, jobKey, done: false, status: `待处理 ${queue.length} 位博主` });
+      pool.workers.push({ tabId: tab.id, jobKey, done: false, completed: 0, total: queue.length, status: `待处理 ${queue.length} 位博主` });
       await chrome.storage.local.set({ [jobKey]: { ...job, queue, index: 0, stage: "posts", commentPostId: null, retryAt: 0 } });
       await publishRankingPool(pool);
       await chrome.tabs.update(tab.id, { url: `https://x.com/${queue[0].username}` });
@@ -52,6 +53,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const worker = pool?.workers.find((item) => item.tabId === sender.tab?.id && item.jobKey === message.jobKey);
     if (!worker || !state.automationRunning || state.automationTask !== "ranking" || state.rankingJob?.id !== pool.id) return { stopped: true };
     worker.status = String(message.status || "").slice(0, 300);
+    if (Number.isFinite(Number(message.completed))) worker.completed = Math.max(0, Number(message.completed));
+    if (Number.isFinite(Number(message.total))) worker.total = Math.max(0, Number(message.total));
     if (message.type === "rankingWorkerDone") worker.done = true;
     await publishRankingPool(pool);
     if (pool.workers.every((item) => item.done)) {

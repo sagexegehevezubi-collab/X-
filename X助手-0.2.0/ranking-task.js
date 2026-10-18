@@ -28,7 +28,16 @@ async function runRankingTask(generation) {
   };
   let job;
   const status = async (text) => {
-    if (active()) await chrome.runtime.sendMessage({ type: "rankingWorkerStatus", jobKey: rankingWorkerJobKey, status: text });
+    if (active()) {
+      const entry = job?.queue?.[job.index];
+      await chrome.runtime.sendMessage({
+        type: "rankingWorkerStatus",
+        jobKey: rankingWorkerJobKey,
+        status: entry?.username ? `@${entry.username}：${text}` : text,
+        completed: Math.min(job?.queue?.length || 0, Math.max(0, Number(job?.index) || 0)),
+        total: job?.queue?.length || 0
+      });
+    }
   };
   const save = () => chrome.storage.local.set({ [rankingWorkerJobKey]: job });
   const record = async (entry, value) => {

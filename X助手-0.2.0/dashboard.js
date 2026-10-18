@@ -2,6 +2,7 @@ const autoFollowBackOption = document.getElementById("autoFollowBack");
 const pageStatus = document.getElementById("pageStatus");
 const taskStatus = document.getElementById("taskStatus");
 const actionStatus = document.getElementById("actionStatus");
+const rankingProgress = document.getElementById("rankingProgress");
 const startTaskButtons = [...document.querySelectorAll("[data-start-task]")];
 const stopTaskButtons = [...document.querySelectorAll("[data-stop-task]")];
 const homeFollowMutualOption = document.getElementById("homeFollowMutualPosts");
@@ -22,6 +23,30 @@ let activeTab;
 let activeTabIsX = false;
 let taskOptionsReady = false;
 let statusReadVersion = 0;
+
+async function updateRankingProgress() {
+  if (!rankingProgress) return;
+  const state = await chrome.storage.local.get({
+    rankingPool: null,
+    rankingJob: null,
+    rankingStatus: ""
+  });
+  const pool = state.rankingPool;
+  const job = state.rankingJob;
+  if (!pool?.workers?.length) {
+    rankingProgress.textContent = state.rankingStatus || (job?.queue?.length ? `榜单进度：已准备 ${job.queue.length} 位博主，等待启动` : "榜单进度：未启动");
+    return;
+  }
+  const total = Math.max(0, Number(job?.queue?.length) || 0);
+  const completed = pool.workers.reduce((sum, worker) => sum + Math.max(0, Number(worker.completed) || 0), 0);
+  const lines = pool.workers.map((worker, index) => {
+    const workerTotal = Math.max(0, Number(worker.total) || 0);
+    const workerCompleted = Math.min(workerTotal, Math.max(0, Number(worker.completed) || 0));
+    return `第 ${index + 1} 路：${worker.status || "准备中"}（${workerCompleted}/${workerTotal}）`;
+  });
+  const displayedCompleted = Math.min(total || completed, completed);
+  rankingProgress.textContent = `榜单进度：${displayedCompleted}/${total || "?"} 位博主已完成\n${lines.join("\n")}`;
+}
 
 function localDateKey() {
   const now = new Date();
@@ -77,6 +102,7 @@ async function updateTaskStatus() {
     lastAutomationStatus: ""
   });
   if (readVersion !== statusReadVersion) return;
+  await updateRankingProgress();
   document.getElementById("followerMonitorStatus").textContent = autoFollowBackOption.checked ? monitor.followerMonitorStatus : "";
   const hasSelectedTask = autoFollowBackOption.checked || homeFollowMutualOption.checked || homeReplyMutualOption.checked || ownPostCommentReplyOption.checked;
   const taskLabels = {
@@ -270,7 +296,7 @@ for (const button of stopTaskButtons) {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus || changes.homeReplyDailyStats) updateTaskStatus();
+  if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus || changes.homeReplyDailyStats || changes.rankingPool || changes.rankingJob || changes.rankingStatus) updateTaskStatus();
 });
 
 idleRefreshMinutes.addEventListener("change", () => {
