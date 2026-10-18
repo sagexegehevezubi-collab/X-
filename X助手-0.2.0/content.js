@@ -39,18 +39,23 @@ const OWN_POST_REPLIED_COMMENTS_KEY = "repliedOwnPostComments";
 const relationshipQueued = new Set();
 const relationshipTried = new Set();
 const MAX_ACTIONS_PER_PAGE = 20;
-const HOME_REPLY_INTERVAL_MS = 35_000;
+const HOME_REPLY_INTERVAL_MS = 20_000;
 const HOME_REPLY_RECENT_WINDOW_MS = 4 * 60 * 60 * 1000;
 const HOME_REPLY_REFRESH_EVERY = 10;
+const HOME_REPLY_BREAK_EVERY = 100;
+const HOME_REPLY_BREAK_MS = 10 * 60 * 1000;
 const HOME_REPLY_DAILY_STATS_KEY = "homeReplyDailyStats";
 const HOME_REPLY_LAST_SENT_KEY = "homeReplyLastSentAt";
 const HOME_REPLY_REFRESH_COUNT_KEY = "homeReplyRefreshCount";
 const HOME_REPLY_REFRESH_REQUESTED_KEY = "homeReplyRefreshRequested";
+const HOME_REPLY_TASK_COUNT_KEY = "homeReplyTaskCount";
+const HOME_REPLY_BREAK_UNTIL_KEY = "homeReplyBreakUntil";
 const AUTO_ADVANCE_INTERVAL_MS = 15000;
 const ADVANCE_SETTLE_MS = 2500;
 const COMPOSER_RECOVERY_DELAY_MS = 20000;
 const FOLLOW_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 let autoAdvanceTimer = null;
+let replyBreakTimer = null;
 let relationshipTimer = null;
 let relationshipActionsCompleted = 0;
 let lastRelationshipActionAt = 0;
@@ -85,19 +90,64 @@ async function recordHomeReplySuccess() {
   const date = localDateKey();
   const state = await chrome.storage.local.get({
     [HOME_REPLY_DAILY_STATS_KEY]: { date, count: 0 },
-    [HOME_REPLY_REFRESH_COUNT_KEY]: 0
+    [HOME_REPLY_REFRESH_COUNT_KEY]: 0,
+    [HOME_REPLY_TASK_COUNT_KEY]: 0
   });
   const previous = state[HOME_REPLY_DAILY_STATS_KEY] || {};
   const count = previous.date === date ? Math.max(0, Number(previous.count) || 0) + 1 : 1;
   const refreshCount = Math.max(0, Number(state[HOME_REPLY_REFRESH_COUNT_KEY]) || 0) + 1;
   const refreshRequested = refreshCount >= HOME_REPLY_REFRESH_EVERY;
+  const taskCount = Math.max(0, Number(state[HOME_REPLY_TASK_COUNT_KEY]) || 0) + 1;
+  const breakRequested = taskCount >= HOME_REPLY_BREAK_EVERY;
+  const nextTaskCount = breakRequested ? 0 : taskCount;
+  const breakUntil = breakRequested ? Date.now() + HOME_REPLY_BREAK_MS : 0;
   await chrome.storage.local.set({
     [HOME_REPLY_LAST_SENT_KEY]: Date.now(),
     [HOME_REPLY_DAILY_STATS_KEY]: { date, count },
     [HOME_REPLY_REFRESH_COUNT_KEY]: refreshCount,
-    [HOME_REPLY_REFRESH_REQUESTED_KEY]: refreshRequested
+    [HOME_REPLY_REFRESH_REQUESTED_KEY]: refreshRequested,
+    [HOME_REPLY_TASK_COUNT_KEY]: nextTaskCount,
+    [HOME_REPLY_BREAK_UNTIL_KEY]: breakUntil
   });
-  return refreshRequested;
+  return { refreshRequested, breakUntil, taskCount: breakRequested ? HOME_REPLY_BREAK_EVERY : taskCount };
+}
+
+function scheduleReplyBreakResume(until, generation) {
+  clearTimeout(replyBreakTimer);
+  if (!isTaskActive(generation) || !until) return;
+  const remaining = Math.max(0, until - Date.now());
+  if (!remaining) {
+    replyBreakTimer = setTimeout(async () => {
+      replyBreakTimer = null;
+      if (!isTaskActive(generation)) return;
+      const state = await chrome.storage.local.get({ [HOME_REPLY_BREAK_UNTIL_KEY]: 0 });
+      if (Date.now() < Number(state[HOME_REPLY_BREAK_UNTIL_KEY] || 0)) {
+        scheduleReplyBreakResume(Number(state[HOME_REPLY_BREAK_UNTIL_KEY]), generation);
+        return;
+      }
+      await chrome.storage.local.set({
+        [HOME_REPLY_BREAK_UNTIL_KEY]: 0,
+        lastAutomationStatus: "10 分钟休息结束，正在刷新 X 并继续评论任务…"
+      });
+      const refresh = await chrome.storage.local.get({ [HOME_REPLY_REFRESH_REQUESTED_KEY]: false });
+      if (refresh[HOME_REPLY_REFRESH_REQUESTED_KEY]) {
+        await chrome.storage.local.set({ [HOME_REPLY_REFRESH_COUNT_KEY]: 0, [HOME_REPLY_REFRESH_REQUESTED_KEY]: false });
+        location.reload();
+      } else {
+        runEngagementRound(generation).catch((error) => scheduleErrorRecovery(error, generation));
+      }
+    }, 0);
+    return;
+  }
+  const minutes = Math.floor(remaining / 60000);
+  const seconds = Math.ceil((remaining % 60000) / 1000);
+  chrome.storage.local.set({
+    lastAutomationStatus: `已成功评论 ${HOME_REPLY_BREAK_EVERY} 条，休息中：${minutes} 分 ${seconds} 秒后继续`
+  }).catch(() => {});
+  replyBreakTimer = setTimeout(() => {
+    replyBreakTimer = null;
+    scheduleReplyBreakResume(until, generation);
+  }, Math.min(60000, remaining));
 }
 
 function isRecentHomeReplyPost(article) {
@@ -405,8 +455,12 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
     !(await waitForHomeReplyInterval(generation))) return;
   if (await sendReplyToPost(article, result.draft, generation) === false) return;
   if (shouldReply && settings.homeReplyMutualPosts && location.pathname === "/home") {
-    const refreshRequested = await recordHomeReplySuccess();
-    if (refreshRequested) {
+    const replyMilestone = await recordHomeReplySuccess();
+    if (replyMilestone.breakUntil) {
+      await chrome.storage.local.set({
+        lastAutomationStatus: `已成功评论 ${HOME_REPLY_BREAK_EVERY} 条，准备休息 10 分钟后继续`
+      });
+    } else if (replyMilestone.refreshRequested) {
       await chrome.storage.local.set({
         lastAutomationStatus: `已成功回复 ${HOME_REPLY_REFRESH_EVERY} 条帖子，准备刷新 X 界面继续任务`
       });
@@ -763,6 +817,15 @@ async function runEngagementRound(generation) {
   taskFeedUrl = location.href;
   startFollowerMonitor();
   try {
+    if (settings.homeReplyMutualPosts && location.pathname === "/home") {
+      const breakState = await chrome.storage.local.get({ [HOME_REPLY_BREAK_UNTIL_KEY]: 0 });
+      const breakUntil = Number(breakState[HOME_REPLY_BREAK_UNTIL_KEY]) || 0;
+      if (breakUntil > Date.now()) {
+        scheduleReplyBreakResume(breakUntil, generation);
+        return;
+      }
+      if (breakUntil) await chrome.storage.local.set({ [HOME_REPLY_BREAK_UNTIL_KEY]: 0 });
+    }
     // Keep stable IDs for the round, then re-query each article before acting.
     // X virtualizes the timeline and replaces article nodes after scrolling or replying;
     // retaining the original DOM nodes caused later matching posts to be skipped.
@@ -793,6 +856,12 @@ async function runEngagementRound(generation) {
         await current;
         if (!isTaskActive(generation)) return;
       } while (current !== pending);
+      const breakState = await chrome.storage.local.get({ [HOME_REPLY_BREAK_UNTIL_KEY]: 0 });
+      const breakUntil = Number(breakState[HOME_REPLY_BREAK_UNTIL_KEY]) || 0;
+      if (breakUntil > Date.now() && settings.homeReplyMutualPosts && location.pathname === "/home") {
+        scheduleReplyBreakResume(breakUntil, generation);
+        return;
+      }
       const refreshState = await chrome.storage.local.get({ [HOME_REPLY_REFRESH_REQUESTED_KEY]: false });
       if (refreshState[HOME_REPLY_REFRESH_REQUESTED_KEY] && settings.homeReplyMutualPosts && location.pathname === "/home") {
         await chrome.storage.local.set({
@@ -821,7 +890,7 @@ async function runEngagementRound(generation) {
     engagementRoundRunning = false;
     if (settings.automationRunning && taskGeneration !== generation && isTaskFeedPage()) {
       scheduleAutoAdvance(taskGeneration, 1000);
-    } else if (isTaskActive(generation) && !autoAdvanceTimer && !followResumeTimer) {
+    } else if (isTaskActive(generation) && !autoAdvanceTimer && !followResumeTimer && !replyBreakTimer) {
       if (isTaskFeedPage()) {
         scheduleAutoAdvance(generation, 1000);
       } else {
@@ -1123,6 +1192,8 @@ async function processRelationshipUser(row, username, taskMode, actionButton, ge
 function stopAutoAdvance() {
   clearTimeout(autoAdvanceTimer);
   autoAdvanceTimer = null;
+  clearTimeout(replyBreakTimer);
+  replyBreakTimer = null;
   clearTimeout(relationshipTimer);
   relationshipTimer = null;
   clearTimeout(followResumeTimer);
@@ -1196,7 +1267,7 @@ function getCurrentUsername() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "taskHandshake") {
     sendResponse({
-      controllerVersion: 37,
+      controllerVersion: 38,
       username: getCurrentUsername(),
       identityAvailable: Boolean(getCurrentUsername()),
       feedSupported: isTaskFeedPage(),
@@ -1248,7 +1319,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? `正在扫描你发布的帖子评论，当前找到 ${ownCommentCount} 条他人评论`
       : null;
   sendResponse({
-    controllerVersion: 37,
+    controllerVersion: 38,
     running: settings.automationRunning,
     supported,
     status,
@@ -1338,7 +1409,9 @@ function updateTaskState(running) {
     ownPostReplyQueued.clear();
     chrome.storage.local.set({
       [HOME_REPLY_REFRESH_COUNT_KEY]: 0,
-      [HOME_REPLY_REFRESH_REQUESTED_KEY]: false
+      [HOME_REPLY_REFRESH_REQUESTED_KEY]: false,
+      [HOME_REPLY_TASK_COUNT_KEY]: 0,
+      [HOME_REPLY_BREAK_UNTIL_KEY]: 0
     }).catch(() => {});
   }
 }

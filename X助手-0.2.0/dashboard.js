@@ -144,13 +144,13 @@ async function startTask(mode) {
   startTaskButtons.forEach((button) => { button.disabled = true; });
   try {
     let controller = await checkTaskController(activeTab.id);
-    if (controller?.controllerVersion !== 37) {
+    if (controller?.controllerVersion !== 38) {
       taskStatus.textContent = "正在刷新所选 X 页面，以加载新版任务脚本…";
       await chrome.tabs.reload(activeTab.id);
       await waitForTabLoad(activeTab.id);
       controller = await checkTaskController(activeTab.id);
     }
-    if (controller?.controllerVersion !== 37) {
+    if (controller?.controllerVersion !== 38) {
       throw new Error("新版任务脚本仍未响应。请确认扩展已重新加载，再刷新 X 页面重试。");
     }
     if ((mode !== "engagement" || autoFollowBackOption.checked) && !controller.identityAvailable) {
