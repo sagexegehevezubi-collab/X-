@@ -129,33 +129,14 @@ async function runRankingTask(generation) {
         });
         if (!active()) return;
         if (sent === false) { await advance(`跳过 @${entry.username}：未确认评论发送`); continue; }
-        await record(entry, { state: "commented", postId: job.commentPostId });
-        job.stage = "follow";
-        await save();
-        location.assign(rankingTargetUrl(job));
-        return;
+        await record(entry, { state: "done", postId: job.commentPostId });
+        await advance(`已确认评论成功 @${entry.username}，进入下一位`);
+        continue;
       }
       if (job.stage === "follow") {
-        const cooldownKey = `rankingFollowCooldown:${job.id}`;
-        const sharedCooldown = (await chrome.storage.local.get(cooldownKey))[cooldownKey] || 0;
-        if (Date.now() < sharedCooldown) {
-          await status("榜单关注共享冷却中，等待后只重试关注");
-          if (!await pause(sharedCooldown - Date.now())) return;
-          continue;
-        }
-        await status(`已确认评论成功，正在关注 @${entry.username}`);
-        const result = await chrome.runtime.sendMessage({ type: "followUser", username: entry.username });
-        if (!active()) return;
-        if (result?.rateLimited) {
-          job.retryAt = Date.now() + 180000;
-          await chrome.storage.local.set({ [cooldownKey]: job.retryAt });
-          await save();
-          await status("关注限速，3 分钟后重试关注；不会再次评论");
-          continue;
-        }
-        if (result?.error || !(result?.followed || result?.alreadyFollowing)) throw new Error(result?.error || "未确认关注成功");
+        await status(`已确认评论成功 @${entry.username}，进入下一位`);
         await record(entry, { state: "done", postId: job.commentPostId });
-        await advance(`已评论并关注 @${entry.username}`);
+        await advance(`已评论 @${entry.username}，进入下一位`);
       }
     }
   } catch (error) {
