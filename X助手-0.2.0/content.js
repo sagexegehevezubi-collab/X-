@@ -246,10 +246,12 @@ async function makeDraft(postText, button) {
     }
     const result = await chrome.runtime.sendMessage({
       type: "generateDraft",
-      postText
+      postText,
+      replyContext: "manual_draft"
     });
     if (result?.error) throw new Error(result.error);
     if (!result?.draft) throw new Error("扩展后台没有返回草稿，请重新加载扩展后重试");
+    if (result.draft === "[SKIP]") throw new Error("模型判断这条内容不适合自动生成回复，请手动处理");
     showDraft(result.draft);
   } catch (error) {
     alert(`生成失败：${error.message || "扩展后台连接失败"}`);
@@ -321,6 +323,10 @@ function queueOwnPostCommentReply(article) {
       });
       if (!isTaskActive(generation)) return;
       if (result?.error || !result?.draft) throw new Error(result?.error || "模型没有返回评论回复");
+      if (result.draft === "[SKIP]") {
+        await chrome.storage.local.set({ lastAutomationStatus: `已跳过 @${commentAuthor} 的评论：内容不适合回复` });
+        return;
+      }
       if (await sendReplyToPost(article, result.draft, generation) === false) return;
       const latest = await chrome.storage.local.get({ [OWN_POST_REPLIED_COMMENTS_KEY]: [] });
       const repliedComments = [...new Set([...latest[OWN_POST_REPLIED_COMMENTS_KEY], key])].slice(-5000);
@@ -451,6 +457,12 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
   const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText, replyContext: "homeMutual" });
   if (!isTaskActive(generation)) return;
   if (result?.error || !result?.draft) throw new Error(result?.error || "模型没有返回回复");
+  if (result.draft === "[SKIP]") {
+    actionsThisPage += 1;
+    lastActivityAt = Date.now();
+    await chrome.storage.local.set({ lastAutomationStatus: `已跳过 @${author}：内容不适合回复` });
+    return;
+  }
   if (shouldReply && settings.homeReplyMutualPosts && location.pathname === "/home" &&
     !(await waitForHomeReplyInterval(generation))) return;
   if (await sendReplyToPost(article, result.draft, generation) === false) return;

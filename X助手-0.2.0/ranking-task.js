@@ -119,9 +119,13 @@ async function runRankingTask(generation) {
           await advance(`跳过 @${entry.username}：目标帖子已有评论或发送尝试记录`);
           continue;
         }
-        const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText: findPostText(article) });
+        const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText: findPostText(article), replyContext: "timeline_influencer" });
         if (!active()) return;
         if (result?.error || !result?.draft) throw new Error(result?.error || "未生成评论内容");
+        if (result.draft === "[SKIP]") {
+          await advance(`跳过 @${entry.username}：内容不适合回复`);
+          continue;
+        }
         const sent = await sendReplyToPost(article, result.draft, generation, {
           inline: true,
           strict: true,
