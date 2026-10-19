@@ -133,6 +133,11 @@ async function runRankingTask(generation) {
         });
         if (!active()) return;
         if (sent === false) { await advance(`跳过 @${entry.username}：未确认评论发送`); continue; }
+        await chrome.runtime.sendMessage({
+          type: "rankingWorkerCommentSuccess",
+          jobKey: rankingWorkerJobKey,
+          commentKey: `${job.owner}:${job.commentPostId}`
+        });
         await record(entry, { state: "done", postId: job.commentPostId });
         await advance(`已确认评论成功 @${entry.username}，进入下一位`);
         continue;

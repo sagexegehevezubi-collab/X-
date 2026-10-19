@@ -29,8 +29,13 @@ async function updateRankingProgress() {
   const state = await chrome.storage.local.get({
     rankingPool: null,
     rankingJob: null,
-    rankingStatus: ""
+    rankingStatus: "",
+    rankingDailyStats: {}
   });
+  const dailyCount = state.rankingDailyStats?.date === localDateKey()
+    ? Math.max(0, Number(state.rankingDailyStats.count) || 0) : 0;
+  const dailyCountElement = document.getElementById("rankingDailyCount");
+  if (dailyCountElement) dailyCountElement.textContent = `榜单博主今日评论：${dailyCount} 条`;
   const pool = state.rankingPool;
   const job = state.rankingJob;
   if (!pool?.workers?.length) {
@@ -296,7 +301,7 @@ for (const button of stopTaskButtons) {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus || changes.homeReplyDailyStats || changes.rankingPool || changes.rankingJob || changes.rankingStatus) updateTaskStatus();
+  if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus || changes.homeReplyDailyStats || changes.rankingPool || changes.rankingJob || changes.rankingStatus || changes.rankingDailyStats) updateTaskStatus();
 });
 
 idleRefreshMinutes.addEventListener("change", () => {

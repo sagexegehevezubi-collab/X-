@@ -5,7 +5,20 @@ function withRankingPoolLock(operation) {
   return next;
 }
 async function rankingPoolState() {
-  return chrome.storage.local.get(["rankingPool", "automationRunning", "automationTask", "automationTargetTabId", "rankingJob"]);
+  return chrome.storage.local.get(["rankingPool", "automationRunning", "automationTask", "automationTargetTabId", "rankingJob", "rankingDailyStats"]);
+}
+function rankingDateKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+async function recordRankingCommentSuccess(message, state) {
+  const date = rankingDateKey();
+  const previous = state.rankingDailyStats || {};
+  const commentKey = String(message.commentKey || "").trim();
+  const keys = previous.date === date && Array.isArray(previous.keys) ? previous.keys : [];
+  if (!commentKey || keys.includes(commentKey)) return;
+  const count = previous.date === date ? Math.max(0, Number(previous.count) || 0) + 1 : 1;
+  await chrome.storage.local.set({ rankingDailyStats: { date, count, keys: [...keys, commentKey].slice(-5000) } });
 }
 async function publishRankingPool(pool) {
   const completed = pool.workers.reduce((sum, worker) => sum + Math.max(0, Number(worker.completed) || 0), 0);
@@ -45,10 +58,16 @@ async function startRankingPool(senderTabId) {
   }
 }
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!["startRankingPool", "rankingWorkerStatus", "rankingWorkerDone"].includes(message?.type)) return;
+  if (!["startRankingPool", "rankingWorkerStatus", "rankingWorkerDone", "rankingWorkerCommentSuccess"].includes(message?.type)) return;
   withRankingPoolLock(async () => {
     if (message.type === "startRankingPool") { await startRankingPool(sender.tab?.id); return { ok: true }; }
     const state = await rankingPoolState();
+    if (message.type === "rankingWorkerCommentSuccess") {
+      const worker = state.rankingPool?.workers.find((item) => item.tabId === sender.tab?.id && item.jobKey === message.jobKey);
+      if (!worker || !state.automationRunning || state.automationTask !== "ranking" || state.rankingJob?.id !== state.rankingPool?.id) return { stopped: true };
+      await recordRankingCommentSuccess(message, state);
+      return { ok: true };
+    }
     const pool = state.rankingPool;
     const worker = pool?.workers.find((item) => item.tabId === sender.tab?.id && item.jobKey === message.jobKey);
     if (!worker || !state.automationRunning || state.automationTask !== "ranking" || state.rankingJob?.id !== pool.id) return { stopped: true };
