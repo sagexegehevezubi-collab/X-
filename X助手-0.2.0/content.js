@@ -448,7 +448,7 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
     return;
   }
 
-  const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText });
+  const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText, replyContext: "homeMutual" });
   if (!isTaskActive(generation)) return;
   if (result?.error || !result?.draft) throw new Error(result?.error || "模型没有返回回复");
   if (shouldReply && settings.homeReplyMutualPosts && location.pathname === "/home" &&
