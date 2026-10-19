@@ -1,4 +1,6 @@
 let rankingTaskBusy = false;
+const RANKING_MAX_ATTEMPTS = 3;
+const RANKING_RETRY_DELAY_MS = 15_000;
 function rankingTargetUrl(job) {
   const entry = job.queue[job.index];
   if (job.stage === "comment") return `https://x.com/${entry.username}/status/${job.commentPostId}`;
@@ -45,6 +47,8 @@ async function runRankingTask(generation) {
   };
   const advance = async (reason) => {
     await status(reason);
+    const current = job.queue[job.index];
+    if (current?.username && job.retryCounts) delete job.retryCounts[current.username.toLowerCase()];
     job.index += 1;
     job.stage = "posts";
     job.posts = [];
@@ -58,6 +62,10 @@ async function runRankingTask(generation) {
     if (job.selectionVersion !== 2) {
       if (job.stage !== "follow") { job.stage = "posts"; job.commentPostId = null; }
       job.selectionVersion = 2;
+      await save();
+    }
+    if (!job.retryCounts || typeof job.retryCounts !== "object") {
+      job.retryCounts = {};
       await save();
     }
     while (active()) {
@@ -151,12 +159,31 @@ async function runRankingTask(generation) {
   } catch (error) {
     if (!active()) return;
     const message = String(error?.message || error).slice(0, 180);
-    await status(`${message}；本路等待 30 秒后重试`);
-    if (job) { job.retryAt = Date.now() + 30000; await save(); }
-    if (await pause(30000)) {
-      if (job && job.index < job.queue.length) location.assign(rankingTargetUrl(job));
-      else location.reload();
+    if (!job || job.index >= job.queue.length) {
+      await status(`${message}；本路任务无法继续`);
+      return;
     }
+    const entry = job.queue[job.index];
+    const retryKey = entry?.username?.toLowerCase() || `index-${job.index}`;
+    job.retryCounts = job.retryCounts || {};
+    const attempts = Math.max(0, Number(job.retryCounts[retryKey]) || 0) + 1;
+    job.retryCounts[retryKey] = attempts;
+    if (attempts >= RANKING_MAX_ATTEMPTS) {
+      await record(entry, { state: "skipped", reason: message });
+      await advance(`跳过 @${entry.username}：连续 ${attempts} 次无法识别或加载，避免任务卡住`);
+      if (job.index < job.queue.length) {
+        location.assign(rankingTargetUrl(job));
+      } else {
+        await chrome.runtime.sendMessage({ type: "rankingWorkerDone", jobKey: rankingWorkerJobKey, status: "本路账号已全部检查" });
+        updateTaskState(false);
+      }
+      return;
+    }
+    const remaining = RANKING_MAX_ATTEMPTS - attempts;
+    await status(`${message}；第 ${attempts}/${RANKING_MAX_ATTEMPTS} 次失败，${RANKING_RETRY_DELAY_MS / 1000} 秒后重试，剩余 ${remaining} 次`);
+    job.retryAt = Date.now() + RANKING_RETRY_DELAY_MS;
+    await save();
+    if (await pause(RANKING_RETRY_DELAY_MS)) location.assign(rankingTargetUrl(job));
   } finally { rankingTaskBusy = false; }
 }
 
