@@ -1,6 +1,32 @@
 let rankingTaskBusy = false;
 const RANKING_MAX_ATTEMPTS = 3;
 const RANKING_RETRY_DELAY_MS = 15_000;
+function rankingPostId(value) {
+  const text = String(value || "");
+  return text.match(/\/status\/(\d+)/)?.[1] || (/^\d+$/.test(text) ? text : null);
+}
+
+async function getRankingHandledPostIds(owner, username, postIds) {
+  const state = await chrome.storage.local.get([
+    "uncertainReplyPostIds", "repliedPostIds", "rankingHistory",
+    `rankingAccount:${owner}:${username}`,
+    ...postIds.flatMap((id) => [`replyAttempt:${owner}:${id}`, `rankingReply:${owner}:${id}`])
+  ]);
+  const handled = new Set([...(state.uncertainReplyPostIds || []), ...(state.repliedPostIds || [])]
+    .map(rankingPostId).filter(Boolean));
+  // Older releases stored one result per author. Preserve that post's protection,
+  // without excluding the author's other posts or future imports.
+  for (const prior of [state[`rankingAccount:${owner}:${username}`], state.rankingHistory?.[`${owner}:${username}`]]) {
+    const id = rankingPostId(prior?.postId);
+    if (id && ["done", "pending", "commented"].includes(prior.state)) handled.add(id);
+  }
+  for (const id of postIds) {
+    const prior = state[`rankingReply:${owner}:${id}`];
+    if (state[`replyAttempt:${owner}:${id}`] || ["done", "pending"].includes(prior?.state)) handled.add(id);
+  }
+  return handled;
+}
+
 function rankingTargetUrl(job) {
   const entry = job.queue[job.index];
   if (job.stage === "comment") return `https://x.com/${entry.username}/status/${job.commentPostId}`;
@@ -43,7 +69,9 @@ async function runRankingTask(generation) {
   };
   const save = () => chrome.storage.local.set({ [rankingWorkerJobKey]: job });
   const record = async (entry, value) => {
-    await chrome.storage.local.set({ [`rankingAccount:${job.owner}:${entry.username}`]: { ...value, updatedAt: Date.now() } });
+    const postId = rankingPostId(value.postId || job.commentPostId);
+    if (!postId) return;
+    await chrome.storage.local.set({ [`rankingReply:${job.owner}:${postId}`]: { ...value, postId, author: entry.username, updatedAt: Date.now() } });
   };
   const advance = async (reason) => {
     await status(reason);
@@ -59,9 +87,10 @@ async function runRankingTask(generation) {
   try {
     job = (await chrome.storage.local.get(rankingWorkerJobKey))[rankingWorkerJobKey];
     if (!job?.queue?.length) throw new Error("榜单队列为空，请重新导入并启动");
-    if (job.selectionVersion !== 2) {
-      if (job.stage !== "follow") { job.stage = "posts"; job.commentPostId = null; }
-      job.selectionVersion = 2;
+    if (job.selectionVersion !== 3 || job.stage === "follow") {
+      job.stage = "posts";
+      job.commentPostId = null;
+      job.selectionVersion = 3;
       await save();
     }
     if (!job.retryCounts || typeof job.retryCounts !== "object") {
@@ -77,18 +106,6 @@ async function runRankingTask(generation) {
       }
       if (Date.now() < job.retryAt && !await pause(job.retryAt - Date.now())) return;
       const entry = job.queue[job.index];
-      const key = `${job.owner}:${entry.username}`;
-      const { rankingHistory = {} } = await chrome.storage.local.get({ rankingHistory: {} });
-      const recordKey = `rankingAccount:${key}`;
-      const prior = (await chrome.storage.local.get(recordKey))[recordKey] || rankingHistory[key];
-      if (prior?.state === "done" || prior?.state === "pending") {
-        await advance(`跳过 @${entry.username}：${prior.state === "done" ? "已完成" : "上次发送结果不确定，避免重复评论"}`);
-        continue;
-      }
-      if (prior?.state === "commented") {
-        job.stage = "follow";
-        job.commentPostId = prior.postId;
-      }
       const target = rankingTargetUrl(job);
       if (location.pathname.toLowerCase() !== new URL(target).pathname.toLowerCase()) {
         await save();
@@ -103,11 +120,8 @@ async function runRankingTask(generation) {
         await status(`正在选择 @${entry.username} 最近一条未评论的帖子`);
         const samples = await collectRankingSamples(entry.username, active, pause);
         if (!active()) return;
-        const { uncertainReplyPostIds = [], repliedPostIds = [] } = await chrome.storage.local.get({ uncertainReplyPostIds: [], repliedPostIds: [] });
-        const attempted = new Set([...uncertainReplyPostIds, ...repliedPostIds.map((id) => String(id).match(/\/status\/(\d+)/)?.[1] || String(id))]);
-        const attemptKeys = samples.map((post) => `replyAttempt:${job.owner}:${post.id}`);
-        const attempts = await chrome.storage.local.get(attemptKeys);
-        const latest = samples.find((post) => !attempted.has(post.id) && !attempts[`replyAttempt:${job.owner}:${post.id}`]);
+        const handled = await getRankingHandledPostIds(job.owner, entry.username, samples.map((post) => post.id));
+        const latest = samples.find((post) => !handled.has(post.id));
         if (!latest) {
           await advance(`跳过 @${entry.username}：已加载帖子中没有可评论且未处理的帖子`);
           continue;
@@ -122,8 +136,8 @@ async function runRankingTask(generation) {
         const article = await waitForElement(() => getPostContainers().find((post) => getPostId(post)?.match(/\/status\/(\d+)/)?.[1] === job.commentPostId && getAuthor(post) === entry.username), 15000);
         if (!active()) return;
         if (!article) throw new Error("未加载到目标博主的帖子");
-        const { uncertainReplyPostIds = [], repliedPostIds = [] } = await chrome.storage.local.get({ uncertainReplyPostIds: [], repliedPostIds: [] });
-        if (uncertainReplyPostIds.includes(job.commentPostId) || repliedPostIds.some((id) => String(id).endsWith(`/status/${job.commentPostId}`))) {
+        const handled = await getRankingHandledPostIds(job.owner, entry.username, [job.commentPostId]);
+        if (handled.has(job.commentPostId)) {
           await advance(`跳过 @${entry.username}：目标帖子已有评论或发送尝试记录`);
           continue;
         }
@@ -149,11 +163,6 @@ async function runRankingTask(generation) {
         await record(entry, { state: "done", postId: job.commentPostId });
         await advance(`已确认评论成功 @${entry.username}，进入下一位`);
         continue;
-      }
-      if (job.stage === "follow") {
-        await status(`已确认评论成功 @${entry.username}，进入下一位`);
-        await record(entry, { state: "done", postId: job.commentPostId });
-        await advance(`已评论 @${entry.username}，进入下一位`);
       }
     }
   } catch (error) {

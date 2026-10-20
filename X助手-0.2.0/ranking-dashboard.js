@@ -149,7 +149,7 @@ document.getElementById("importRanking").addEventListener("click", async (event)
   finally { button.disabled = false; }
 });
 async function prepareRankingJob(controller) {
-  const { rankingImport, rankingHistory = {} } = await chrome.storage.local.get(["rankingImport", "rankingHistory"]);
+  const { rankingImport } = await chrome.storage.local.get("rankingImport");
   if (!rankingImport?.queue?.length) throw new Error("请先选择榜单分类并导入博主");
   if (Date.now() - rankingImport.importedAt > 86400000) throw new Error("榜单数据超过 24 小时，请重新导入");
   await rankingFiltersReady;
@@ -157,17 +157,16 @@ async function prepareRankingJob(controller) {
   if (rankingFilterIds.some((id) => currentFilters[id] !== (rankingImport.requestedFilters?.[id] || ""))) {
     throw new Error("筛选条件已更改，请重新导入博主后启动");
   }
-  const owner = controller.username;
+  const owner = String(controller.username || "").toLowerCase();
   if (!owner) throw new Error("无法识别当前登录的 X 账号");
   const interval = Math.min(3600, Math.max(5, Number(document.getElementById("rankingInterval").value) || 30));
   const limit = readRankingLimit();
   const concurrency = Number(document.getElementById("rankingConcurrency").value);
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10) throw new Error("同时处理博主数请填写 1–10 的整数");
-  const accountRecords = await chrome.storage.local.get(rankingImport.queue.map((entry) => `rankingAccount:${owner}:${entry.username}`));
   const uniqueAccounts = [...new Map(rankingImport.queue.map((entry) => [entry.username.toLowerCase(), { ...entry, username: entry.username.toLowerCase() }])).values()];
-  const queue = uniqueAccounts.filter((entry) => entry.username !== owner && (accountRecords[`rankingAccount:${owner}:${entry.username}`] || rankingHistory[`${owner}:${entry.username}`])?.state !== "done").slice(0, limit);
-  if (!queue.length) throw new Error("导入的博主均已完成互动，请导入其他账号");
-  await chrome.storage.local.set({ rankingJob: { id: crypto.randomUUID(), owner, queue, index: 0, stage: "posts", selectionVersion: 2, concurrency, interval, posts: [], commentPostId: null, retryAt: 0 }, rankingStatus: `准备检查 ${queue.length} 位博主` });
+  const queue = uniqueAccounts.filter((entry) => entry.username !== owner).slice(0, limit);
+  if (!queue.length) throw new Error("导入名单中没有其他博主，请检查榜单账号");
+  await chrome.storage.local.set({ rankingJob: { id: crypto.randomUUID(), owner, queue, index: 0, stage: "posts", selectionVersion: 3, concurrency, interval, posts: [], commentPostId: null, retryAt: 0 }, rankingStatus: `准备检查 ${queue.length} 位博主（允许重复导入，仅按帖子去重）` });
 }
 chrome.storage.local.get("rankingImport").then(({ rankingImport }) => {
   if (rankingImport?.queue?.length) rankingImportStatus.textContent = `已导入 ${rankingImport.queue.length} 位博主；${rankingImport.filters || "榜单当前分类"}`;
