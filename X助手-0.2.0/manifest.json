@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X助手",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "description": "用于 X 平台的效率辅助工具。",
   "permissions": [
     "storage",
@@ -11,7 +11,9 @@
   "host_permissions": [
     "https://xbangdan.com/*",
     "https://x.com/*",
+    "https://www.x.com/*",
     "https://twitter.com/*",
+    "https://www.twitter.com/*",
     "https://api.openai.com/*",
     "https://api.daitu.cc/*",
     "https://heidawang.top/*",
@@ -32,6 +34,8 @@
     {
       "matches": [
         "https://x.com/*",
+        "https://www.x.com/*",
+        "https://www.twitter.com/*",
         "https://twitter.com/*"
       ],
       "js": [

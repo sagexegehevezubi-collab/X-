@@ -348,19 +348,15 @@ function queueOwnPostCommentReply(article) {
 }
 
 function processPost(article, allowAutomatic = scanningRound) {
-  if (!article.isConnected || settings.automationTask !== "engagement") return;
-  if (settings.automationTask === "engagement" && settings.ownPostCommentReply && isOwnPostThreadPage()) {
-    if (allowAutomatic) queueOwnPostCommentReply(article);
-    return;
-  }
+  if (!article.isConnected) return;
   const text = findPostText(article);
   if (!text) return;
   const hits = matchedTerms(text);
   const postId = getPostId(article);
   const isHomepage = location.pathname === "/home";
-  if (!hits.length) return;
 
-  if (!article.querySelector(`.${BADGE}`)) {
+  // 手动生成草稿按钮与自动任务模式解耦；自动关注/评论仍只在 engagement 模式运行。
+  if (hits.length && !article.querySelector(`.${BADGE}`)) {
     const container = document.createElement("div");
     container.className = BADGE;
     const label = document.createElement("span");
@@ -379,6 +375,13 @@ function processPost(article, allowAutomatic = scanningRound) {
     const target = article.querySelector('[data-testid="tweetText"]')?.parentElement;
     (target || article).append(container);
   }
+
+  if (settings.automationTask !== "engagement") return;
+  if (settings.ownPostCommentReply && isOwnPostThreadPage()) {
+    if (allowAutomatic) queueOwnPostCommentReply(article);
+    return;
+  }
+  if (!hits.length) return;
 
   const mutualIntent = hits.length > 0;
   const shouldFollow = mutualIntent && isHomepage && settings.homeFollowMutualPosts;
@@ -1280,7 +1283,7 @@ function getCurrentUsername() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "taskHandshake") {
     sendResponse({
-      controllerVersion: 39,
+      controllerVersion: 40,
       username: getCurrentUsername(),
       identityAvailable: Boolean(getCurrentUsername()),
       feedSupported: isTaskFeedPage(),
@@ -1332,7 +1335,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? `正在扫描你发布的帖子评论，当前找到 ${ownCommentCount} 条他人评论`
       : null;
   sendResponse({
-    controllerVersion: 39,
+    controllerVersion: 40,
     running: settings.automationRunning,
     supported,
     status,
