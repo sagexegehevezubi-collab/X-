@@ -53,6 +53,7 @@ function harness(initial = {}) {
     }
   });
   vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-task.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'reply-validation.js'), 'utf8'), context);
   context.collectRankingSamples = async () => ['103', '102', '101'].map(id => ({ id }));
   return { context, data, elements, messages, navigation, sends, resume() { running = true; } };
 }

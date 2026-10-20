@@ -148,6 +148,10 @@ async function runRankingTask(generation) {
           await advance(`跳过 @${entry.username}：内容不适合回复`);
           continue;
         }
+        if (!hasMeaningfulReplyText(result.draft)) {
+          await advance(`跳过 @${entry.username}：模型只返回了标点或表情，已阻止发送`);
+          continue;
+        }
         const sent = await sendReplyToPost(article, result.draft, generation, {
           inline: true,
           strict: true,

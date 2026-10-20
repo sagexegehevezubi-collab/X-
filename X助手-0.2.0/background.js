@@ -1,4 +1,4 @@
-importScripts("providers.js", "reply-emotion-pool.js", "ranking-pool.js", "specified-pool.js");
+importScripts("providers.js", "reply-emotion-pool.js", "reply-validation.js", "ranking-pool.js", "specified-pool.js");
 importScripts("follow-rate-limit.js");
 const followRateRuleReady = chrome.storage.local.get(["followRateRuleVersion", "lastAutomationError", "rankingJob", "automationTask"]).then(async (state) => {
   if (state.automationTask === "hashtags") {
@@ -250,7 +250,8 @@ async function generateDraft(postText, replyContext = "post") {
     });
     const raw = extractModelText(data);
     if (!raw) throw new Error("模型返回了空内容（接口已响应，但没有识别到文本字段）");
-    return stripReplyDecorations(raw);
+    const cleaned = stripReplyDecorations(raw);
+    return cleaned === "[SKIP]" || hasMeaningfulReplyText(cleaned) ? cleaned : "";
   };
 
   const first = await requestOnce(false);
@@ -259,7 +260,12 @@ async function generateDraft(postText, replyContext = "post") {
     const manualRetry = await requestOnce(true).catch(() => "");
     return manualRetry && manualRetry !== "[SKIP]" ? manualRetry : first;
   }
-  if (!first) throw new Error("模型返回的回复只包含装饰话术，请重试");
+  if (!first) {
+    const retry = await requestOnce(true).catch(() => "");
+    if (retry && retry !== "[SKIP]") return retry;
+    if (scene === "manual_draft") throw new Error("模型返回的回复只有标点、表情或空白，未生成可用草稿");
+    return "[SKIP]";
+  }
   const firstScore = scoreReplyNaturalness(first, postText);
   if (firstScore >= 65) return first;
   const retry = await requestOnce(true).catch(() => "");

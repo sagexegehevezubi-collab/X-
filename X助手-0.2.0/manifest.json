@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X助手",
-  "version": "0.2.25",
+  "version": "0.2.26",
   "description": "用于 X 平台的效率辅助工具。",
   "permissions": [
     "storage",
@@ -41,6 +41,7 @@
       "js": [
         "follow-rate-limit.js",
         "follower-monitor.js",
+        "reply-validation.js",
         "ranking-task.js",
         "specified-task.js",
         "content.js"

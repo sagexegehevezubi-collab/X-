@@ -496,6 +496,7 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
 
 async function sendReplyToPost(article, draft, generation, options = {}) {
   if (!isTaskActive(generation)) throw new Error("任务已停止");
+  if (!hasMeaningfulReplyText(draft)) throw new Error("回复内容只有标点、表情或空白，已阻止发送");
   const targetId = getPostId(article)?.match(/\/status\/(\d+)/)?.[1];
   const targetArticle = article.isConnected ? article : getPostContainers().find((post) =>
     getPostId(post)?.match(/\/status\/(\d+)/)?.[1] === targetId);
