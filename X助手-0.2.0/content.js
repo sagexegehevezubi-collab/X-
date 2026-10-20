@@ -27,6 +27,7 @@ let recoveryTimer = null;
 let recovering = false;
 let taskFeedUrl = null;
 let rankingWorkerJobKey = null;
+let specifiedWorkerJobKey = null;
 let pending = Promise.resolve();
 let engagementRoundRunning = false;
 let scanningRound = false;
@@ -1279,7 +1280,7 @@ function getCurrentUsername() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "taskHandshake") {
     sendResponse({
-      controllerVersion: 38,
+      controllerVersion: 39,
       username: getCurrentUsername(),
       identityAvailable: Boolean(getCurrentUsername()),
       feedSupported: isTaskFeedPage(),
@@ -1288,7 +1289,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
   if (message?.type !== "taskControl") return;
-  if (["engagement", "ranking", "unfollowNonMutual", "followBackFollowers"].includes(message.taskMode)) {
+  if (["engagement", "ranking", "specified", "unfollowNonMutual", "followBackFollowers"].includes(message.taskMode)) {
     settings.automationTask = message.taskMode;
   }
   if (message.settings && typeof message.settings === "object") {
@@ -1320,7 +1321,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }).length + (settings.ownPostCommentReply ? ownCommentCount : 0);
   const relationshipTask = ["unfollowNonMutual", "followBackFollowers"].includes(settings.automationTask);
   const expectedRelationshipPath = relationshipTask ? relationshipListPath(settings.automationTask) : null;
-  const supported = settings.automationTask === "ranking" ? Boolean(getCurrentUsername()) : relationshipTask ? Boolean(expectedRelationshipPath) :
+  const supported = ["ranking", "specified"].includes(settings.automationTask) ? Boolean(getCurrentUsername()) : relationshipTask ? Boolean(expectedRelationshipPath) :
     settings.ownPostCommentReply && ownThread ? true :
       (settings.autoFollowBack || settings.homeFollowMutualPosts || settings.homeReplyMutualPosts) && location.pathname === "/home";
   const status = relationshipTask
@@ -1331,7 +1332,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? `正在扫描你发布的帖子评论，当前找到 ${ownCommentCount} 条他人评论`
       : null;
   sendResponse({
-    controllerVersion: 38,
+    controllerVersion: 39,
     running: settings.automationRunning,
     supported,
     status,
@@ -1360,6 +1361,7 @@ chrome.storage.local.get({
   settings.automationRunning = false;
   chrome.runtime.sendMessage({ type: "getTaskStateForTab" }).then((taskState) => {
     rankingWorkerJobKey = taskState?.rankingWorkerJobKey || null;
+    specifiedWorkerJobKey = taskState?.specifiedWorkerJobKey || null;
     if (taskState?.followerMonitor) { runFollowerMonitor(); return; }
     settings.automationTask = taskState?.taskMode || settings.automationTask;
     if (taskState?.running === true) {
@@ -1437,6 +1439,7 @@ function startFollowerMonitor() {
 
 function startCurrentTask(generation) {
   if (settings.automationTask === "ranking") { runRankingTask(generation); return; }
+  if (settings.automationTask === "specified") { runSpecifiedTask(generation); return; }
   startFollowerMonitor();
   if (settings.automationTask === "unfollowNonMutual" || settings.automationTask === "followBackFollowers") {
     startRelationshipTask(settings.automationTask, generation);

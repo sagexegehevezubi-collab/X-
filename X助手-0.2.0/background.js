@@ -1,4 +1,4 @@
-importScripts("providers.js", "reply-emotion-pool.js", "ranking-pool.js");
+importScripts("providers.js", "reply-emotion-pool.js", "ranking-pool.js", "specified-pool.js");
 importScripts("follow-rate-limit.js");
 const followRateRuleReady = chrome.storage.local.get(["followRateRuleVersion", "lastAutomationError", "rankingJob", "automationTask"]).then(async (state) => {
   if (state.automationTask === "hashtags") {
@@ -50,12 +50,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "getTaskStateForTab") {
-    followRateRuleReady.then(() => chrome.storage.local.get({ automationRunning: false, automationTask: "engagement", automationTargetTabId: null, followerMonitorTabId: null, autoFollowBack: false, rankingPool: null }))
+    followRateRuleReady.then(() => chrome.storage.local.get({ automationRunning: false, automationTask: "engagement", automationTargetTabId: null, followerMonitorTabId: null, autoFollowBack: false, rankingPool: null, specifiedPool: null }))
       .then((state) => {
         const worker = state.automationTask === "ranking" ? state.rankingPool?.workers.find((item) => item.tabId === _sender.tab?.id && !item.done) : null;
+        const specifiedWorker = state.automationTask === "specified" ? state.specifiedPool?.workers.find((item) => item.tabId === _sender.tab?.id && !item.done) : null;
         sendResponse({
-        running: state.automationRunning === true && (state.automationTargetTabId === _sender.tab?.id || Boolean(worker)),
+        running: state.automationRunning === true && (state.automationTargetTabId === _sender.tab?.id || Boolean(worker) || Boolean(specifiedWorker)),
         rankingWorkerJobKey: worker?.jobKey || null,
+        specifiedWorkerJobKey: specifiedWorker?.jobKey || null,
         followerMonitor: state.automationRunning && state.autoFollowBack && state.automationTask === "engagement" && state.followerMonitorTabId === _sender.tab?.id,
         taskMode: state.automationTask
       }); })

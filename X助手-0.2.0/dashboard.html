@@ -75,6 +75,26 @@
           <button class="danger" type="button" data-stop-task="followBackFollowers">停止</button>
         </div>
       </section>
+      <section class="task-category" aria-labelledby="specifiedHeading">
+        <div class="category-heading">
+          <div><h2 id="specifiedHeading">指定博主互动</h2><p>处理指定主页近 4 小时内的原创帖子</p></div>
+          <span class="task-state" data-state-for="specified">未运行</span>
+        </div>
+        <label for="specifiedAuthors">博主账号</label>
+        <textarea id="specifiedAuthors" rows="4" placeholder="输入 @账号名、账号链接，可用空格、逗号或换行分隔"></textarea>
+        <div class="relationship-limits">
+          <label>每位博主最多评论数<input id="specifiedPerAuthorLimit" type="number" min="1" max="5" step="1" value="5"></label>
+          <label>评论间隔（秒）<input id="specifiedInterval" type="number" min="20" max="3600" step="1" value="20"></label>
+        </div>
+        <p id="specifiedImportStatus" class="filter-status" role="status">尚未准备指定博主</p>
+        <p id="specifiedDailyCount" class="daily-count" role="status">指定博主今日评论：0 条，涉及 0 位博主</p>
+        <p id="specifiedProgress" class="ranking-progress" role="status">指定博主进度：未启动</p>
+        <p class="note">每位最多处理 5 条近 4 小时帖子，跳过转发和回复帖；评论间隔至少 20 秒。发送结果不确定时不重试，主页或帖子连续失败 3 次后跳过并继续。</p>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="specified">开始指定博主互动</button>
+          <button class="danger" type="button" data-stop-task="specified">停止</button>
+        </div>
+      </section>
       <section class="task-category" aria-labelledby="rankingHeading">
         <div class="category-heading">
           <div><h2 id="rankingHeading">榜单博主互动</h2><p>选择分类 → 优先评论最新帖子 → 确认成功后进入下一位</p></div>
@@ -120,6 +140,7 @@
       <p class="note">首页任务会自动下滑加载内容；长时间没有新内容时自动刷新。停止后会取消后续操作。</p>
     </main>
     <script src="ranking-dashboard.js"></script>
+    <script src="specified-dashboard.js"></script>
     <script src="dashboard.js"></script>
   </body>
 </html>

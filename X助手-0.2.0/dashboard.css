@@ -32,6 +32,7 @@ h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
 .task-options small { display: block; margin-top: 8px; color: #657786; font-size: 12px; }
 .daily-count { margin: 8px 0 0; color: #087443; font-size: 13px; font-weight: 650; }
 .ranking-progress { min-height: 24px; margin: 10px 0 0; padding: 9px 10px; border-radius: 8px; background: #f1f7fb; color: #24526c; font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+#specifiedAuthors { width: 100%; resize: vertical; padding: 9px 10px; border: 1px solid #cfd9de; border-radius: 8px; color: #17202a; font: inherit; }
 .filter-options summary { cursor: pointer; }
 .filter-options fieldset { margin: 14px 0 0; padding: 10px 12px; border: 1px solid #e1e8ed; border-radius: 9px; }
 .filter-options legend { padding: 0 5px; color: #536471; font-size: 12px; font-weight: 650; }
