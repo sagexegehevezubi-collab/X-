@@ -1,5 +1,6 @@
 const rankingSource = document.getElementById("rankingSource");
 const rankingImportStatus = document.getElementById("rankingImportStatus");
+const rankingOffsetInput = document.getElementById("rankingOffset");
 const rankingFilterIds = ["rankingMode", "rankingSort", "rankingPeriod", "rankingCategory", "rankingAudience"];
 const rankingFiltersReady = chrome.storage.local.get({ rankingFilters: {} }).then(({ rankingFilters }) => {
   for (const id of rankingFilterIds) {
@@ -11,9 +12,21 @@ for (const id of rankingFilterIds) document.getElementById(id).addEventListener(
   chrome.storage.local.set({ rankingFilters: Object.fromEntries(rankingFilterIds.map((key) => [key, document.getElementById(key).value])) });
   rankingImportStatus.textContent = "筛选条件已更改，请重新导入后启动";
 });
+chrome.storage.local.get({ rankingOffset: 0 }).then(({ rankingOffset }) => {
+  rankingOffsetInput.value = String(Math.max(0, Math.floor(Number(rankingOffset) || 0)));
+});
+rankingOffsetInput.addEventListener("change", () => {
+  const value = Number(rankingOffsetInput.value);
+  if (Number.isSafeInteger(value) && value >= 0) chrome.storage.local.set({ rankingOffset: value });
+});
 function readRankingLimit() {
   const value = Number(document.getElementById("rankingLimit").value);
   if (!Number.isSafeInteger(value) || value < 1) throw new Error("请填写大于 0 的整数作为博主数量");
+  return value;
+}
+function readRankingOffset() {
+  const value = Number(document.getElementById("rankingOffset").value);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("跳过前面博主数量请填写大于或等于 0 的整数");
   return value;
 }
 async function refreshRankingSources() {
@@ -42,10 +55,11 @@ document.getElementById("importRanking").addEventListener("click", async (event)
     await rankingFiltersReady;
     const filters = Object.fromEntries(rankingFilterIds.map((id) => [id, document.getElementById(id).value]));
     const limit = readRankingLimit();
-    rankingImportStatus.textContent = `正在导入，目标 ${limit} 位博主，将自动向后翻页…`;
+    const offset = readRankingOffset();
+    rankingImportStatus.textContent = `正在跳过前 ${offset} 位，导入后续 ${limit} 位博主，将自动向后翻页…`;
     const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId }, args: [limit, filters],
-      func: async (maximum, requestedFilters) => {
+      target: { tabId }, args: [limit, offset, filters],
+      func: async (maximum, skipBefore, requestedFilters) => {
         const table = document.querySelector("#ac-tb");
         if (!table) return { error: "没有找到账号榜，请等待榜单加载完成" };
         const label = (value) => String(value || "").replace(/[\s▼▽↓↑▲△]/g, "").replace(/[–—]/g, "-");
@@ -101,6 +115,7 @@ document.getElementById("importRanking").addEventListener("click", async (event)
         }
         await wait(500);
         const queue = new Map();
+        const seenAccounts = new Set();
         const seenPages = new Set();
         let stopReason = "已达到指定数量";
         const snapshot = () => [...document.querySelectorAll('#ac-tb tbody tr[data-h]')]
@@ -122,7 +137,11 @@ document.getElementById("importRanking").addEventListener("click", async (event)
           for (const row of snapshot()) {
             const username = row.getAttribute("data-h");
             if (!/^[A-Za-z0-9_]{1,15}$/.test(username || "")) continue;
-            queue.set(username.toLowerCase(), { username: username.toLowerCase(), category: row.getAttribute("data-cat"),
+            const normalizedUsername = username.toLowerCase();
+            if (seenAccounts.has(normalizedUsername)) continue;
+            seenAccounts.add(normalizedUsername);
+            if (seenAccounts.size <= skipBefore) continue;
+            queue.set(normalizedUsername, { username: normalizedUsername, category: row.getAttribute("data-cat"),
               posts7: number(row, "data-posts-7"), posts30: number(row, "data-posts-30"),
               replies7: number(row, "data-reply-7"), replies30: number(row, "data-reply-30") });
             if (queue.size >= maximum) break;
@@ -139,12 +158,14 @@ document.getElementById("importRanking").addEventListener("click", async (event)
           }
           if (!changed) { stopReason = "下一页加载超时，已保留本次读取的账号"; break; }
         }
-        return { queue: [...queue.values()], requestedFilters, stopReason, source: location.href, filters: filterText, importedAt: Date.now() };
+        return { queue: [...queue.values()], requestedFilters, skipBefore, scannedBefore: Math.min(skipBefore, seenAccounts.size),
+          rangeStart: skipBefore + 1, rangeEnd: skipBefore + queue.size, stopReason, source: location.href, filters: filterText, importedAt: Date.now() };
       }
     });
     if (result?.error || !result?.queue?.length) throw new Error(result?.error || "当前分类没有可导入账号");
     await chrome.storage.local.set({ rankingImport: result });
-    rankingImportStatus.textContent = `已导入 ${result.queue.length} 位博主（目标 ${limit} 位，从第一页向后读取；${result.stopReason}）；${result.filters || "使用榜单当前筛选条件"}`;
+    const range = `${result.rangeStart || offset + 1}–${result.rangeEnd || offset + result.queue.length} 位`;
+    rankingImportStatus.textContent = `已导入 ${result.queue.length} 位博主（第 ${range}，${result.stopReason}）；${result.filters || "使用榜单当前筛选条件"}`;
   } catch (error) { rankingImportStatus.textContent = error.message; }
   finally { button.disabled = false; }
 });
@@ -169,7 +190,11 @@ async function prepareRankingJob(controller) {
   await chrome.storage.local.set({ rankingJob: { id: crypto.randomUUID(), owner, queue, index: 0, stage: "posts", selectionVersion: 3, concurrency, interval, posts: [], commentPostId: null, retryAt: 0 }, rankingStatus: `准备检查 ${queue.length} 位博主（允许重复导入，仅按帖子去重）` });
 }
 chrome.storage.local.get("rankingImport").then(({ rankingImport }) => {
-  if (rankingImport?.queue?.length) rankingImportStatus.textContent = `已导入 ${rankingImport.queue.length} 位博主；${rankingImport.filters || "榜单当前分类"}`;
+  if (rankingImport?.queue?.length) {
+    const start = Number.isSafeInteger(rankingImport.rangeStart) ? rankingImport.rangeStart : 1;
+    const end = Number.isSafeInteger(rankingImport.rangeEnd) ? rankingImport.rangeEnd : start + rankingImport.queue.length - 1;
+    rankingImportStatus.textContent = `已导入 ${rankingImport.queue.length} 位博主（第 ${start}–${end} 位）；${rankingImport.filters || "榜单当前分类"}`;
+  }
 });
 refreshRankingSources();
 
