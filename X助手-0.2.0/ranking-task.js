@@ -83,6 +83,7 @@ async function runRankingTask(generation) {
     job.commentPostId = null;
     job.retryAt = Date.now() + job.interval * 1000;
     await save();
+    await status(job.index >= job.queue.length ? "本路已完成，断点已保存" : "已保存断点，准备处理下一位");
   };
   try {
     job = (await chrome.storage.local.get(rankingWorkerJobKey))[rankingWorkerJobKey];

@@ -145,3 +145,13 @@ test('a post marked pending after selection is not generated or sent again', asy
   assert.equal(h.messages.some(m => m.type === 'generateDraft'), false);
   assert.deepEqual(h.sends, []);
 });
+
+test('resume mode keeps the unfinished job and restores per-worker checkpoints', async () => {
+  const previous = job({ id: 'unfinished', concurrency: 2, completed: false });
+  const h = harness({ rankingJob: previous, rankingCheckpoint: { jobId: 'unfinished', completedByWorker: [4, 2] } });
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-dashboard.js'), 'utf8'), h.context);
+  await h.context.prepareRankingJob({ username: 'owner' }, 'resume');
+  assert.equal(h.data.rankingJob.id, 'unfinished');
+  assert.deepEqual(h.data.rankingJob.resumeFrom, [4, 2]);
+  assert.match(h.data.rankingStatus, /继续上次榜单任务/);
+});

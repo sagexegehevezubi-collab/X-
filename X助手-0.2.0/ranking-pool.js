@@ -39,6 +39,7 @@ async function startRankingPool(senderTabId) {
   }
   const count = Math.min(job.queue.length, Math.max(1, Math.min(10, Number(job.concurrency) || 1)));
   const pool = { id: job.id, coordinatorTabId: senderTabId, workers: [] };
+  const resumeFrom = Array.isArray(job.resumeFrom) ? job.resumeFrom : [];
   try {
     for (let index = 0; index < count; index += 1) {
       const current = await rankingPoolState();
@@ -46,10 +47,20 @@ async function startRankingPool(senderTabId) {
       const queue = job.queue.filter((_, position) => position % count === index);
       const jobKey = `rankingWorkerJob:${job.id}:${index}`;
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });
-      pool.workers.push({ tabId: tab.id, jobKey, done: false, completed: 0, total: queue.length, status: `待处理 ${queue.length} 位博主` });
-      await chrome.storage.local.set({ [jobKey]: { ...job, queue, index: 0, stage: "posts", commentPostId: null, retryAt: 0 } });
+      const startIndex = Math.min(queue.length, Math.max(0, Number(resumeFrom[index]) || 0));
+      const done = startIndex >= queue.length;
+      pool.workers.push({ tabId: tab.id, jobKey, done, completed: startIndex, total: queue.length, status: done ? `本路已完成 ${queue.length} 位博主` : `继续处理，已完成 ${startIndex}/${queue.length} 位博主` });
+      await chrome.storage.local.set({ [jobKey]: { ...job, queue, index: startIndex, stage: "posts", commentPostId: null, retryAt: 0 } });
       await publishRankingPool(pool);
-      await chrome.tabs.update(tab.id, { url: `https://x.com/${queue[0].username}` });
+      if (!done) await chrome.tabs.update(tab.id, { url: `https://x.com/${queue[startIndex].username}` });
+    }
+    if (pool.workers.every((worker) => worker.done)) {
+      await chrome.storage.local.set({
+        automationRunning: false,
+        rankingJob: { ...job, completed: true },
+        rankingCheckpoint: { jobId: job.id, completedByWorker: pool.workers.map((worker) => worker.completed), updatedAt: Date.now() },
+        lastAutomationStatus: "榜单任务已完成，没有剩余账号需要继续"
+      });
     }
   } catch (error) {
     await chrome.storage.local.set({ rankingPool: null });
@@ -75,9 +86,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (Number.isFinite(Number(message.completed))) worker.completed = Math.max(0, Number(message.completed));
     if (Number.isFinite(Number(message.total))) worker.total = Math.max(0, Number(message.total));
     if (message.type === "rankingWorkerDone") worker.done = true;
+    const checkpoint = state.rankingJob;
+    const completedByWorker = pool.workers.map((item) => Math.max(0, Number(item.completed) || 0));
+    await chrome.storage.local.set({ rankingCheckpoint: { jobId: pool.id, completedByWorker, updatedAt: Date.now() } });
     await publishRankingPool(pool);
     if (pool.workers.every((item) => item.done)) {
-      await chrome.storage.local.set({ automationRunning: false, lastAutomationStatus: "榜单并行任务已完成，所有分配账号均已检查" });
+      await chrome.storage.local.set({ automationRunning: false, rankingJob: { ...checkpoint, completed: true }, lastAutomationStatus: "榜单并行任务已完成，所有分配账号均已检查" });
     }
     return { ok: true };
   }).then(sendResponse).catch((error) => sendResponse({ error: error.message }));

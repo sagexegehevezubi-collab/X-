@@ -100,11 +100,12 @@ async function updateTaskStatus() {
   const readVersion = ++statusReadVersion;
   const monitor = await chrome.storage.local.get({ followerMonitorStatus: "" });
   await updateHomeReplyDailyCount();
-  const { automationRunning = false, automationTask = "engagement", lastAutomationError = "", lastAutomationStatus = "" } = await chrome.storage.local.get({
+  const { automationRunning = false, automationTask = "engagement", lastAutomationError = "", lastAutomationStatus = "", rankingJob = null } = await chrome.storage.local.get({
     automationRunning: false,
     automationTask: "engagement",
     lastAutomationError: "",
-    lastAutomationStatus: ""
+    lastAutomationStatus: "",
+    rankingJob: null
   });
   if (readVersion !== statusReadVersion) return;
   await updateRankingProgress();
@@ -130,9 +131,12 @@ async function updateTaskStatus() {
   actionStatus.textContent = actionMessage;
   for (const button of startTaskButtons) {
     const mode = button.dataset.startTask;
+    const resumeUnavailable = mode === "ranking" && button.dataset.rankingStartMode === "resume" &&
+      (!rankingJob?.queue?.length || rankingJob.completed === true);
     button.disabled = !activeTabIsX || (mode === "engagement" && !hasSelectedTask) || !taskOptionsReady;
+    if (resumeUnavailable) button.disabled = true;
     button.textContent = automationRunning && automationTask === mode
-      ? mode === "engagement" ? "重新开始关注 / 评论" : "重新开始"
+      ? mode === "engagement" ? "重新开始关注 / 评论" : button.dataset.rankingStartMode === "resume" ? "继续执行中" : "重新开始"
       : button.dataset.defaultLabel;
   }
   for (const button of stopTaskButtons) {
@@ -170,7 +174,7 @@ async function updatePageStatus() {
 targetTabSelect.addEventListener("change", updatePageStatus);
 refreshTabsButton.addEventListener("click", updatePageStatus);
 
-async function startTask(mode) {
+async function startTask(mode, rankingStartMode = "restart") {
   if (!activeTab?.id || !activeTabIsX) return;
   if (mode === "engagement" && !autoFollowBackOption.checked && !homeFollowMutualOption.checked && !homeReplyMutualOption.checked && !ownPostCommentReplyOption.checked) return;
   startTaskButtons.forEach((button) => { button.disabled = true; });
@@ -203,7 +207,7 @@ async function startTask(mode) {
     };
     await chrome.storage.local.set({ automationRunning: false });
     await chrome.tabs.sendMessage(activeTab.id, { type: "taskControl", running: false }).catch(() => {});
-    if (mode === "ranking") await prepareRankingJob(controller);
+    if (mode === "ranking") await prepareRankingJob(controller, rankingStartMode);
     if (mode === "specified") await prepareSpecifiedJob(controller);
     await chrome.storage.local.set({
       ...selectedTasks,
@@ -269,7 +273,7 @@ function waitForTabLoad(tabId) {
 
 for (const button of startTaskButtons) {
   button.dataset.defaultLabel = button.textContent;
-  button.addEventListener("click", () => startTask(button.dataset.startTask));
+  button.addEventListener("click", () => startTask(button.dataset.startTask, button.dataset.rankingStartMode || "restart"));
 }
 
 for (const option of [autoFollowBackOption, homeFollowMutualOption, homeReplyMutualOption, ownPostCommentReplyOption]) {
