@@ -170,17 +170,19 @@ document.getElementById("importRanking").addEventListener("click", async (event)
   finally { button.disabled = false; }
 });
 async function prepareRankingJob(controller, startMode = "restart") {
-  const { rankingImport, rankingJob: previousJob = null, rankingCheckpoint = null } = await chrome.storage.local.get(["rankingImport", "rankingJob", "rankingCheckpoint"]);
+  const { rankingImport, rankingJob: previousJob = null } = await chrome.storage.local.get(["rankingImport", "rankingJob"]);
   if (startMode === "resume") {
     if (!previousJob?.queue?.length) throw new Error("没有可继续的上次榜单任务");
     if (previousJob.completed === true) throw new Error("上次榜单任务已经完成，请选择从头开始回复");
     if (previousJob.owner && String(previousJob.owner).toLowerCase() !== String(controller.username || "").toLowerCase()) {
       throw new Error("上次榜单任务属于另一个 X 账号，请切换回原账号后继续");
     }
-    const checkpoint = rankingCheckpoint?.jobId === previousJob.id ? rankingCheckpoint : null;
+    const checkpoint = await readRankingCheckpoint(previousJob);
+    if (!checkpoint.found) throw new Error("上次任务没有可恢复的断点，已阻止从 0 开始；请选择从头开始回复");
     await chrome.storage.local.set({
-      rankingJob: { ...previousJob, completed: false, resumeFrom: checkpoint?.completedByWorker || [] },
-      rankingStatus: `准备继续上次榜单任务，已完成 ${checkpoint?.completedByWorker?.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0) || 0} 位博主`
+      rankingJob: { ...previousJob, completed: false, resumeFrom: checkpoint.completedByWorker },
+      rankingCheckpoint: checkpoint,
+      rankingStatus: `准备继续上次榜单任务，已完成 ${checkpoint.completedByWorker.reduce((sum, value) => sum + value, 0)}/${previousJob.queue.length} 位博主`
     });
     return;
   }

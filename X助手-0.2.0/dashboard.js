@@ -180,13 +180,13 @@ async function startTask(mode, rankingStartMode = "restart") {
   startTaskButtons.forEach((button) => { button.disabled = true; });
   try {
     let controller = await checkTaskController(activeTab.id);
-    if (controller?.controllerVersion !== 41) {
+    if (controller?.controllerVersion !== 42) {
       taskStatus.textContent = "正在刷新所选 X 页面，以加载新版任务脚本…";
       await chrome.tabs.reload(activeTab.id);
       await waitForTabLoad(activeTab.id);
       controller = await checkTaskController(activeTab.id);
     }
-    if (controller?.controllerVersion !== 41) {
+    if (controller?.controllerVersion !== 42) {
       throw new Error("新版任务脚本仍未响应。请确认扩展已重新加载，再刷新 X 页面重试。");
     }
     if ((mode !== "engagement" || autoFollowBackOption.checked) && !controller.identityAvailable) {
@@ -205,6 +205,8 @@ async function startTask(mode, rankingStartMode = "restart") {
       ownPostCommentReply: ownPostCommentReplyOption.checked,
       ...Object.fromEntries(Object.entries(relationshipSettingInputs).map(([key, input]) => [key, Number(input.value)]))
     };
+    const stopped = await chrome.runtime.sendMessage({ type: "stopRankingPool" });
+    if (stopped?.error) throw new Error(stopped.error);
     await chrome.storage.local.set({ automationRunning: false });
     await chrome.tabs.sendMessage(activeTab.id, { type: "taskControl", running: false }).catch(() => {});
     if (mode === "ranking") await prepareRankingJob(controller, rankingStartMode);
@@ -297,6 +299,8 @@ for (const button of stopTaskButtons) {
       automationTask: "engagement"
     });
     if (!automationRunning || automationTask !== mode) return;
+    const stopped = await chrome.runtime.sendMessage({ type: "stopRankingPool" });
+    if (stopped?.error) { actionStatus.textContent = stopped.error; actionStatus.hidden = false; return; }
     await chrome.storage.local.set({ automationRunning: false, lastAutomationError: "", lastAutomationStatus: "任务已停止" });
     if (activeTab?.id) {
       chrome.tabs.sendMessage(activeTab.id, { type: "taskControl", running: false }).catch(() => {});

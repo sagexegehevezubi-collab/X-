@@ -1,4 +1,4 @@
-importScripts("providers.js", "reply-emotion-pool.js", "reply-validation.js", "ranking-pool.js", "specified-pool.js");
+importScripts("providers.js", "reply-emotion-pool.js", "reply-validation.js", "ranking-checkpoint.js", "ranking-pool.js", "specified-pool.js");
 importScripts("follow-rate-limit.js");
 const followRateRuleReady = chrome.storage.local.get(["followRateRuleVersion", "lastAutomationError", "rankingJob", "automationTask"]).then(async (state) => {
   if (state.automationTask === "hashtags") {

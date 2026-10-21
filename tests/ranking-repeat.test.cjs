@@ -54,6 +54,7 @@ function harness(initial = {}) {
   });
   vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-task.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(extensionDir, 'reply-validation.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-checkpoint.js'), 'utf8'), context);
   context.collectRankingSamples = async () => ['103', '102', '101'].map(id => ({ id }));
   return { context, data, elements, messages, navigation, sends, resume() { running = true; } };
 }
@@ -147,11 +148,33 @@ test('a post marked pending after selection is not generated or sent again', asy
 });
 
 test('resume mode keeps the unfinished job and restores per-worker checkpoints', async () => {
-  const previous = job({ id: 'unfinished', concurrency: 2, completed: false });
+  const previous = job({ id: 'unfinished', concurrency: 2, completed: false,
+    queue: Array.from({ length: 200 }, (_, i) => ({ username: `author${i}` })) });
   const h = harness({ rankingJob: previous, rankingCheckpoint: { jobId: 'unfinished', completedByWorker: [4, 2] } });
   vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-dashboard.js'), 'utf8'), h.context);
   await h.context.prepareRankingJob({ username: 'owner' }, 'resume');
   assert.equal(h.data.rankingJob.id, 'unfinished');
   assert.deepEqual(h.data.rankingJob.resumeFrom, [4, 2]);
   assert.match(h.data.rankingStatus, /继续上次榜单任务/);
+});
+
+test('resume preparation recovers legacy worker indices when the summary was never saved', async () => {
+  const previous = job({ id: 'legacy', concurrency: 2,
+    queue: Array.from({ length: 200 }, (_, i) => ({ username: `author${i}` })) });
+  const h = harness({ rankingJob: previous });
+  for (let index = 0; index < 2; index++) {
+    h.data[`rankingWorkerJob:legacy:${index}`] = { ...previous, index: 60,
+      queue: previous.queue.filter((_, position) => position % 2 === index) };
+  }
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-dashboard.js'), 'utf8'), h.context);
+  await h.context.prepareRankingJob({ username: 'owner' }, 'resume');
+  assert.deepEqual(h.data.rankingJob.resumeFrom, [60, 60]);
+  assert.match(h.data.rankingStatus, /120\/200/);
+});
+
+test('resume without any recoverable position fails instead of silently starting over', async () => {
+  const h = harness({ rankingJob: job({ concurrency: 1 }) });
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'ranking-dashboard.js'), 'utf8'), h.context);
+  await assert.rejects(h.context.prepareRankingJob({ username: 'owner' }, 'resume'), /没有可恢复的断点/);
+  assert.equal(h.data.rankingJob.resumeFrom, undefined);
 });
