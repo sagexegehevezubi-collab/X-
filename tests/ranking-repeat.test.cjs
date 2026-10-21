@@ -7,6 +7,13 @@ const { randomUUID } = require('node:crypto');
 
 const extensionDir = path.join(__dirname, '..', 'X助手-0.2.0');
 
+test('ranking failures retry once after 15 seconds and then skip', () => {
+  const source = fs.readFileSync(path.join(extensionDir, 'ranking-task.js'), 'utf8');
+  assert.match(source, /const RANKING_MAX_ATTEMPTS = 2/);
+  assert.match(source, /const RANKING_RETRY_DELAY_MS = 15_000/);
+  assert.match(source, /if \(attempts >= RANKING_MAX_ATTEMPTS\)/);
+});
+
 function harness(initial = {}) {
   const data = structuredClone(initial);
   const elements = new Map();

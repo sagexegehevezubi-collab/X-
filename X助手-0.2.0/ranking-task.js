@@ -1,5 +1,7 @@
 let rankingTaskBusy = false;
-const RANKING_MAX_ATTEMPTS = 3;
+// One initial attempt plus one retry. A second failure skips this author so
+// one broken profile cannot hold the whole ranking task.
+const RANKING_MAX_ATTEMPTS = 2;
 const RANKING_RETRY_DELAY_MS = 15_000;
 function rankingPostId(value) {
   const text = String(value || "");
