@@ -7,6 +7,19 @@ const { randomUUID } = require('node:crypto');
 
 const extensionDir = path.join(__dirname, '..', 'X助手-0.2.0');
 
+test('model safety refusals are classified as skip text, while normal replies remain sendable', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'reply-validation.js'), 'utf8'), context);
+  for (const refusal of [
+    '抱歉，我无法协助传播谣言或色情内容。',
+    '很抱歉，这类内容涉及违规，我不能提供回复。',
+    "I'm sorry, I cannot help create sexual content."
+  ]) assert.equal(vm.runInContext(`isModelRefusalReply(${JSON.stringify(refusal)})`, context), true);
+  for (const reply of ['这个角度挺有意思', '不能只看表面，后面还有门槛', '这也太离谱了']) {
+    assert.equal(vm.runInContext(`isModelRefusalReply(${JSON.stringify(reply)})`, context), false);
+  }
+});
+
 test('ranking failures retry once after 15 seconds and then skip', () => {
   const source = fs.readFileSync(path.join(extensionDir, 'ranking-task.js'), 'utf8');
   assert.match(source, /const RANKING_MAX_ATTEMPTS = 2/);

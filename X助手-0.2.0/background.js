@@ -251,6 +251,7 @@ async function generateDraft(postText, replyContext = "post") {
     const raw = extractModelText(data);
     if (!raw) throw new Error("模型返回了空内容（接口已响应，但没有识别到文本字段）");
     const cleaned = stripReplyDecorations(raw);
+    if (isModelRefusalReply(cleaned)) return "[SKIP]";
     return cleaned === "[SKIP]" || hasMeaningfulReplyText(cleaned) ? cleaned : "";
   };
 
