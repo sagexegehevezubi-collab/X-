@@ -20,6 +20,21 @@ test('model safety refusals are classified as skip text, while normal replies re
   }
 });
 
+test('reply candidate validation blocks long replies and leaked model metadata', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(extensionDir, 'reply-validation.js'), 'utf8'), context);
+  const cases = [
+    ['这是一条明确超过三十个字符的回复文本，必须在发送前直接被拦截掉，不能继续提交', false],
+    ['**My Thought Process:** I should choose a reply', false],
+    ['好的，[SKIP]', false],
+    ['这个角度挺有意思', true],
+    ['不能只看表面', true]
+  ];
+  for (const [text, expected] of cases) {
+    assert.equal(vm.runInContext(`isSafeReplyCandidate(${JSON.stringify(text)})`, context), expected, text);
+  }
+});
+
 test('ranking failures retry once after 15 seconds and then skip', () => {
   const source = fs.readFileSync(path.join(extensionDir, 'ranking-task.js'), 'utf8');
   assert.match(source, /const RANKING_MAX_ATTEMPTS = 2/);

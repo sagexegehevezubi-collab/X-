@@ -496,8 +496,7 @@ async function runAutomaticActions(article, postText, generation, shouldFollow, 
 
 async function sendReplyToPost(article, draft, generation, options = {}) {
   if (!isTaskActive(generation)) throw new Error("任务已停止");
-  if (isModelRefusalReply(draft)) throw new Error("模型返回了安全拒绝说明，已阻止发送并跳过此帖");
-  if (!hasMeaningfulReplyText(draft)) throw new Error("回复内容只有标点、表情或空白，已阻止发送");
+  if (!isSafeReplyCandidate(draft)) throw new Error("回复内容超过 30 字或包含模型分析/拒绝说明，已阻止发送");
   const targetId = getPostId(article)?.match(/\/status\/(\d+)/)?.[1];
   const targetArticle = article.isConnected ? article : getPostContainers().find((post) =>
     getPostId(post)?.match(/\/status\/(\d+)/)?.[1] === targetId);
@@ -1285,7 +1284,7 @@ function getCurrentUsername() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "taskHandshake") {
     sendResponse({
-      controllerVersion: 44,
+      controllerVersion: 45,
       username: getCurrentUsername(),
       identityAvailable: Boolean(getCurrentUsername()),
       feedSupported: isTaskFeedPage(),
@@ -1337,7 +1336,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? `正在扫描你发布的帖子评论，当前找到 ${ownCommentCount} 条他人评论`
       : null;
   sendResponse({
-    controllerVersion: 44,
+    controllerVersion: 45,
     running: settings.automationRunning,
     supported,
     status,
