@@ -30,6 +30,16 @@ function isModelRefusalReply(value) {
 
 function isSafeReplyCandidate(value) {
   const text = String(value || "").normalize("NFKC").trim();
-  return Boolean(text) && text !== "[SKIP]" && text.length <= MAX_REPLY_LENGTH &&
-    hasMeaningfulReplyText(text) && !isReplyMetaText(text) && !isModelRefusalReply(text);
+  return !getReplyCandidateIssue(text);
+}
+
+function getReplyCandidateIssue(value) {
+  const text = String(value || "").normalize("NFKC").trim();
+  if (!text) return "empty";
+  if (/^\[skip\]$/i.test(text) || /\[\s*skip\s*\]/i.test(text)) return "model_skip";
+  if (text.length > MAX_REPLY_LENGTH) return "too_long";
+  if (isReplyMetaText(text)) return "model_meta";
+  if (isModelRefusalReply(text)) return "refusal";
+  if (!hasMeaningfulReplyText(text)) return "punctuation";
+  return "";
 }

@@ -256,7 +256,7 @@ async function prepareRankingJob(controller, startMode = "restart") {
   const uniqueAccounts = [...new Map(importData.queue.map((entry) => [entry.username.toLowerCase(), { ...entry, username: entry.username.toLowerCase() }])).values()];
   const queue = uniqueAccounts.filter((entry) => entry.username !== owner).slice(0, limit);
   if (!queue.length) throw new Error("导入名单中没有其他博主，请检查榜单账号");
-  await chrome.storage.local.set({ rankingJob: { id: crypto.randomUUID(), owner, queue, index: 0, stage: "posts", selectionVersion: 3, concurrency, interval, posts: [], commentPostId: null, retryAt: 0, completed: false, resumeFrom: [] }, rankingCheckpoint: null, rankingStatus: `准备从头检查 ${queue.length} 位博主（允许重复导入，仅按帖子去重）` });
+  await chrome.storage.local.set({ rankingJob: { id: crypto.randomUUID(), owner, queue, index: 0, stage: "posts", selectionVersion: 3, concurrency, interval, posts: [], commentPostId: null, attemptedPostIds: [], replyRetryCount: 0, lastPostFailureReason: "", retryAt: 0, completed: false, resumeFrom: [] }, rankingCheckpoint: null, rankingStatus: `准备从头检查 ${queue.length} 位博主（每位最多尝试两条帖子）` });
 }
 chrome.storage.local.get("rankingImport").then(({ rankingImport }) => {
   if (rankingImport?.queue?.length) {

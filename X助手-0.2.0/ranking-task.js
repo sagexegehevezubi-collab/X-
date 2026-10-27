@@ -91,6 +91,9 @@ async function runRankingTask(generation) {
     job.stage = "posts";
     job.posts = [];
     job.commentPostId = null;
+    job.attemptedPostIds = [];
+    job.replyRetryCount = 0;
+    job.lastPostFailureReason = "";
     job.retryAt = Date.now() + job.interval * 1000;
     await save();
     await status(job.index >= job.queue.length ? "本路已完成，断点已保存" : "已保存断点，准备处理下一位");
@@ -108,6 +111,8 @@ async function runRankingTask(generation) {
       job.retryCounts = {};
       await save();
     }
+    if (!Array.isArray(job.attemptedPostIds)) job.attemptedPostIds = [];
+    if (!Number.isInteger(job.replyRetryCount) || job.replyRetryCount < 0) job.replyRetryCount = 0;
     while (active()) {
       if (job.index >= job.queue.length) {
         await status("榜单任务已完成，所有导入账号均已检查");
@@ -132,9 +137,10 @@ async function runRankingTask(generation) {
         const samples = await collectRankingSamples(entry.username, active, pause);
         if (!active()) return;
         const handled = await getRankingHandledPostIds(job.owner, entry.username, samples.map((post) => post.id));
-        const latest = samples.find((post) => !handled.has(post.id));
+        const attemptedPostIds = new Set((job.attemptedPostIds || []).map(String));
+        const latest = samples.find((post) => !handled.has(post.id) && !attemptedPostIds.has(String(post.id)));
         if (!latest) {
-          await advance(`跳过 @${entry.username}：已加载帖子中没有可评论且未处理的帖子`);
+          await advance(`跳过 @${entry.username}：${job.lastPostFailureReason || "已加载帖子中没有可评论且未处理的帖子"}`);
           continue;
         }
         job.commentPostId = latest.id;
@@ -155,13 +161,34 @@ async function runRankingTask(generation) {
         const result = await chrome.runtime.sendMessage({ type: "generateDraft", postText: findPostText(article), replyContext: "timeline_influencer" });
         if (!active()) return;
         if (result?.error || !result?.draft) throw new Error(result?.error || "未生成评论内容");
-        if (result.draft === "[SKIP]") {
-          await advance(`跳过 @${entry.username}：内容不适合回复`);
-          continue;
-        }
-        if (!hasMeaningfulReplyText(result.draft)) {
-          await advance(`跳过 @${entry.username}：模型只返回了标点或表情，已阻止发送`);
-          continue;
+        const issue = result.reason || getReplyCandidateIssue(result.draft);
+        if (result.draft === "[SKIP]" || issue) {
+          const issueLabels = {
+            model_skip: "模型判断内容不适合回复",
+            refusal: "模型返回安全拒绝说明",
+            too_long: "回复超过 30 字",
+            model_meta: "检测到模型思考或分析文本",
+            punctuation: "回复只有标点或表情",
+            empty: "模型返回空内容",
+            invalid: "回复未通过格式校验"
+          };
+          const reason = issueLabels[issue] || "回复未通过格式校验";
+          job.lastPostFailureReason = `${reason}；本帖已尝试 ${Math.min(2, (job.replyRetryCount || 0) + 1)} 次`;
+          if (!["model_skip", "refusal"].includes(issue) && (job.replyRetryCount || 0) < 1) {
+            job.replyRetryCount = 1;
+            await save();
+            await status(`@${entry.username}：${reason}，正在重试当前帖子`);
+            if (await pause(1200)) continue;
+            return;
+          }
+          job.attemptedPostIds = [...new Set([...(job.attemptedPostIds || []), String(job.commentPostId)])];
+          job.replyRetryCount = 0;
+          job.stage = "posts";
+          job.commentPostId = null;
+          await save();
+          await status(`@${entry.username}：${reason}，正在寻找该博主的下一条帖子`);
+          if (active()) location.assign(`https://x.com/${entry.username}`);
+          return;
         }
         const sent = await sendReplyToPost(article, result.draft, generation, {
           inline: true,

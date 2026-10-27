@@ -73,7 +73,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "generateDraft") return;
 
   generateDraft(message.postText, message.replyContext)
-    .then((draft) => sendResponse({ draft }))
+    .then((result) => sendResponse(typeof result === "string" ? { draft: result } : result))
     .catch((error) => sendResponse({ error: error.message || "请求失败" }));
 
   return true;
@@ -212,7 +212,7 @@ async function generateDraft(postText, replyContext = "post") {
   if (replyMode === "fixed") {
     const text = String(fixedReplyText).trim();
     if (!text) throw new Error("请先在设置中填写固定回复内容并保存。");
-    return text;
+    return { draft: text, reason: "fixed" };
   }
   const { apiKey, model, endpoint, provider = "", authMode = "bearer", authHeaderName = "Authorization" } = await chrome.storage.local.get({
     apiKey: "",
@@ -249,30 +249,25 @@ async function generateDraft(postText, replyContext = "post") {
       })
     });
     const raw = extractModelText(data);
-    if (!raw) throw new Error("模型返回了空内容（接口已响应，但没有识别到文本字段）");
+    if (!raw) return { text: "", reason: "empty" };
     const cleaned = stripReplyDecorations(raw);
-    if (!isSafeReplyCandidate(cleaned)) return "[SKIP]";
-    return cleaned;
+    const reason = getReplyCandidateIssue(cleaned);
+    if (reason) return { text: "", reason };
+    return { text: cleaned, reason: "" };
   };
 
   const first = await requestOnce(false);
-  if (first === "[SKIP]") {
-    if (scene !== "manual_draft") return first;
+  if (!first.text) {
+    if (scene !== "manual_draft") return { draft: "[SKIP]", reason: first.reason || "invalid" };
     const manualRetry = await requestOnce(true).catch(() => "");
-    return manualRetry && manualRetry !== "[SKIP]" ? manualRetry : first;
+    if (manualRetry?.text) return { draft: manualRetry.text, reason: "" };
+    throw new Error(`模型未生成可用草稿（${manualRetry?.reason || first.reason || "invalid"}）`);
   }
-  if (!first) {
-    const retry = await requestOnce(true).catch(() => "");
-    if (retry && retry !== "[SKIP]") return retry;
-    if (scene === "manual_draft") throw new Error("模型返回的回复只有标点、表情或空白，未生成可用草稿");
-    return "[SKIP]";
-  }
-  const firstScore = scoreReplyNaturalness(first, postText);
-  if (firstScore >= 65) return first;
+  const firstScore = scoreReplyNaturalness(first.text, postText);
+  if (firstScore >= 65) return { draft: first.text, reason: "" };
   const retry = await requestOnce(true).catch(() => "");
-  if (retry === "[SKIP]") return scene === "manual_draft" ? first : retry;
-  if (!retry) return first;
-  return scoreReplyNaturalness(retry, postText) >= firstScore ? retry : first;
+  if (!retry?.text) return { draft: first.text, reason: "" };
+  return { draft: scoreReplyNaturalness(retry.text, postText) >= firstScore ? retry.text : first.text, reason: "" };
 }
 
 function stripReplyDecorations(value) {

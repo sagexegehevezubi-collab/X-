@@ -62,7 +62,11 @@ function harness(initial = {}) {
       } },
       runtime: { async sendMessage(message) {
         messages.push(structuredClone(message));
-        return message.type === 'generateDraft' ? { draft: '先看看实际效果' } : { ok: true };
+        if (message.type === 'generateDraft') {
+          const draft = data.draftQueue?.length ? data.draftQueue.shift() : '先看看实际效果';
+          return typeof draft === 'object' ? draft : { draft };
+        }
+        return { ok: true };
       } },
       tabs: { async query() { return []; } }
     },
@@ -141,6 +145,34 @@ test('repeat runs select a different post from the same author and preserve ever
   await h.context.runRankingTask(3);
   assert.deepEqual(h.sends, ['102', '101']);
   assert.equal(h.data.worker.index, 1);
+});
+
+test('format failure retries the same post once and can then send it', async () => {
+  const h = harness({ worker: job(), draftQueue: ['这是一条明确超过三十个字符的回复文本，必须直接拦截掉，不能继续发送', '这个角度挺有意思'] });
+  await h.context.runRankingTask(1);
+  h.context.location.pathname = '/author/status/103';
+  await h.context.runRankingTask(1);
+  assert.deepEqual(h.sends, ['103']);
+  assert.equal(h.data.worker.index, 1);
+});
+
+test('format failure tries one alternate post before skipping the author', async () => {
+  const h = harness({ worker: job(), draftQueue: [
+    '这是一条明确超过三十个字符的回复文本，必须直接拦截掉，不能继续发送',
+    '这还是一条明确超过三十个字符的回复文本，第二次也必须直接拦截掉',
+    '这个角度挺有意思'
+  ] });
+  await h.context.runRankingTask(1);
+  h.context.location.pathname = '/author/status/103';
+  await h.context.runRankingTask(1);
+  assert.equal(h.data.worker.commentPostId, null);
+  assert.deepEqual(h.data.worker.attemptedPostIds, ['103']);
+  h.context.location.pathname = '/author';
+  await h.context.runRankingTask(1);
+  assert.equal(h.data.worker.commentPostId, '102');
+  h.context.location.pathname = '/author/status/102';
+  await h.context.runRankingTask(1);
+  assert.deepEqual(h.sends, ['102']);
 });
 
 test('legacy pending/commented records block only their specific post', async () => {
