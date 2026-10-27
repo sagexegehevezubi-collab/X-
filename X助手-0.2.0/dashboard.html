@@ -123,6 +123,16 @@
         <p id="rankingImportStatus" role="status">尚未导入博主</p>
         <p id="rankingDailyCount" class="daily-count" role="status">榜单博主今日评论：0 条</p>
         <p id="rankingProgress" class="ranking-progress" role="status">榜单进度：未启动</p>
+        <div class="ranking-failures" aria-labelledby="rankingFailureSummary">
+          <div class="ranking-failures-heading">
+            <strong id="rankingFailureSummary">失败记录：0 条</strong>
+            <span>
+              <button id="exportRankingFailures" class="quiet-button" type="button">导出 CSV</button>
+              <button id="clearRankingFailures" class="quiet-button" type="button">清空记录</button>
+            </span>
+          </div>
+          <div id="rankingFailuresList" class="ranking-failures-list" role="log" aria-live="polite">暂无失败记录</div>
+        </div>
         <p class="note">可直接在上方选择榜单类型、排序、时间、赛道和粉丝范围；选择“沿用网站当前选择”时保留网站设置。黑马粉丝范围适用于黑马榜，普通粉丝范围适用于普通账号榜。导入时应用筛选并从第一页开始；填写“跳过前面博主数量”即可自动翻过前 N 位，例如跳过 200、导入 200 就读取第 201–400 位。同一博主可在一天内多次导入和互动，之前已完成的博主也会保留在本轮名单中。不判断活跃度或互动情况，按发布时间优先选择已加载的最新可评论帖子，仅跳过已评论或发送结果不确定的同一帖子。评论沿用固定回复/AI 回复设置。每轮对每位博主最多评论一条帖子，重新启动时可评论该博主的其他未处理帖子。单个博主识别或加载失败，首次失败后等待 15 秒只重试 1 次；第二次仍失败就自动跳过并进入下一位，避免任务卡住。此任务将上方选中的 X 标签页作为控制页，并打开独立后台标签页并行处理博主；与首页任务切换运行。停止会关闭任务标签页。</p>
         <div class="category-actions">
           <button class="primary" type="button" data-start-task="ranking" data-ranking-start-mode="resume" id="resumeRanking">继续上次未完成</button>

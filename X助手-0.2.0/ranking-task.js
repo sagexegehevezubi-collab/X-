@@ -70,12 +70,20 @@ async function runRankingTask(generation) {
     }
   };
   const save = () => chrome.storage.local.set({ [rankingWorkerJobKey]: job });
+  const recordFailure = async (entry, reason, attempts = 1) => {
+    if (!entry?.username) return;
+    await chrome.runtime.sendMessage({ type: "rankingWorkerFailure", jobKey: rankingWorkerJobKey, failure: {
+      rank: entry.rank, username: entry.username, stage: job.stage === "comment" ? "评论发送" : "帖子识别",
+      reason: String(reason || "未记录原因").replace(/^跳过\s*@[^：:]+[：:]?\s*/, "").slice(0, 300), attempts, createdAt: Date.now()
+    }});
+  };
   const record = async (entry, value) => {
     const postId = rankingPostId(value.postId || job.commentPostId);
     if (!postId) return;
     await chrome.storage.local.set({ [`rankingReply:${job.owner}:${postId}`]: { ...value, postId, author: entry.username, updatedAt: Date.now() } });
   };
   const advance = async (reason) => {
+    if (/^跳过/.test(String(reason || ""))) await recordFailure(job.queue[job.index], reason, Math.max(1, Number(job.retryCounts?.[job.queue[job.index]?.username?.toLowerCase()]) || 1));
     await status(reason);
     const current = job.queue[job.index];
     if (current?.username && job.retryCounts) delete job.retryCounts[current.username.toLowerCase()];

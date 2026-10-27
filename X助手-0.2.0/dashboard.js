@@ -180,13 +180,13 @@ async function startTask(mode, rankingStartMode = "restart") {
   startTaskButtons.forEach((button) => { button.disabled = true; });
   try {
     let controller = await checkTaskController(activeTab.id);
-    if (controller?.controllerVersion !== 45) {
+    if (controller?.controllerVersion !== 46) {
       taskStatus.textContent = "正在刷新所选 X 页面，以加载新版任务脚本…";
       await chrome.tabs.reload(activeTab.id);
       await waitForTabLoad(activeTab.id);
       controller = await checkTaskController(activeTab.id);
     }
-    if (controller?.controllerVersion !== 45) {
+    if (controller?.controllerVersion !== 46) {
       throw new Error("新版任务脚本仍未响应。请确认扩展已重新加载，再刷新 X 页面重试。");
     }
     if ((mode !== "engagement" || autoFollowBackOption.checked) && !controller.identityAvailable) {
@@ -312,6 +312,7 @@ for (const button of stopTaskButtons) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.followerMonitorStatus || changes.autoFollowBack || changes.automationRunning || changes.automationTask || changes.lastAutomationError || changes.lastAutomationStatus || changes.homeReplyDailyStats || changes.rankingPool || changes.rankingJob || changes.rankingStatus || changes.rankingDailyStats) updateTaskStatus();
+  if (changes.rankingFailureLog) updateRankingFailures();
 });
 
 idleRefreshMinutes.addEventListener("change", () => {

@@ -96,7 +96,7 @@ async function startRankingPool(senderTabId) {
   }
 }
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!["startRankingPool", "stopRankingPool", "rankingWorkerStatus", "rankingWorkerDone", "rankingWorkerCommentSuccess"].includes(message?.type)) return;
+  if (!["startRankingPool", "stopRankingPool", "rankingWorkerStatus", "rankingWorkerDone", "rankingWorkerCommentSuccess", "rankingWorkerFailure"].includes(message?.type)) return;
   withRankingPoolLock(async () => {
     if (message.type === "startRankingPool") { await startRankingPool(sender.tab?.id); return { ok: true }; }
     if (message.type === "stopRankingPool") {
@@ -106,6 +106,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return { ok: true };
     }
     const state = await rankingPoolState();
+    if (message.type === "rankingWorkerFailure") {
+      const worker = state.rankingPool?.workers.find((item) => item.tabId === sender.tab?.id && item.jobKey === message.jobKey);
+      if (!worker || !state.rankingJob || state.rankingJob.id !== state.rankingPool?.id) return { stopped: true };
+      const failure = message.failure || {};
+      const rank = Number.isInteger(Number(failure.rank)) ? Number(failure.rank) : null;
+      const username = String(failure.username || "").toLowerCase();
+      if (!username) return { error: "失败记录缺少博主账号" };
+      const { rankingFailureLog = [] } = await chrome.storage.local.get({ rankingFailureLog: [] });
+      const log = Array.isArray(rankingFailureLog) ? rankingFailureLog : [];
+      const key = `${state.rankingJob.id}:${worker.jobKey}:${rank ?? ""}:${username}:${failure.stage || ""}:${failure.reason || ""}`;
+      if (!log.some((item) => item.key === key)) {
+        log.push({ key, jobId: state.rankingJob.id, rank, username,
+          stage: String(failure.stage || "未知阶段").slice(0, 80),
+          reason: String(failure.reason || "未记录原因").slice(0, 300),
+          attempts: Math.max(1, Number(failure.attempts) || 1),
+          createdAt: Number(failure.createdAt) || Date.now(),
+          url: `https://x.com/${username}` });
+        await chrome.storage.local.set({ rankingFailureLog: log.slice(-5000) });
+      }
+      return { ok: true };
+    }
     if (message.type === "rankingWorkerCommentSuccess") {
       const worker = state.rankingPool?.workers.find((item) => item.tabId === sender.tab?.id && item.jobKey === message.jobKey);
       if (!worker || !state.automationRunning || state.automationTask !== "ranking" || state.rankingJob?.id !== state.rankingPool?.id) return { stopped: true };

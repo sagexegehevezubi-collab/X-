@@ -1,6 +1,10 @@
 const rankingSource = document.getElementById("rankingSource");
 const rankingImportStatus = document.getElementById("rankingImportStatus");
 const rankingOffsetInput = document.getElementById("rankingOffset");
+const rankingFailureSummary = document.getElementById("rankingFailureSummary");
+const rankingFailuresList = document.getElementById("rankingFailuresList");
+const exportRankingFailuresButton = document.getElementById("exportRankingFailures");
+const clearRankingFailuresButton = document.getElementById("clearRankingFailures");
 const rankingFilterIds = ["rankingMode", "rankingSort", "rankingPeriod", "rankingCategory", "rankingAudience"];
 const rankingFiltersReady = chrome.storage.local.get({ rankingFilters: {} }).then(({ rankingFilters }) => {
   for (const id of rankingFilterIds) {
@@ -18,6 +22,55 @@ chrome.storage.local.get({ rankingOffset: 0 }).then(({ rankingOffset }) => {
 rankingOffsetInput.addEventListener("change", () => {
   const value = Number(rankingOffsetInput.value);
   if (Number.isSafeInteger(value) && value >= 0) chrome.storage.local.set({ rankingOffset: value });
+});
+
+function rankingFailureCsvCell(value) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+function rankingFailureLabel(failure) {
+  const date = failure.createdAt ? new Date(failure.createdAt).toLocaleString() : "时间未知";
+  const rank = Number.isInteger(failure.rank) ? `第 ${failure.rank} 名` : "名次未知";
+  const attempts = Math.max(1, Number(failure.attempts) || 1);
+  return `${rank} @${failure.username || "未知账号"}｜${failure.stage || "未知阶段"}｜${failure.reason || "未记录原因"}｜${attempts} 次｜${date}`;
+}
+async function updateRankingFailures() {
+  if (!rankingFailureSummary || !rankingFailuresList) return;
+  const { rankingFailureLog = [] } = await chrome.storage.local.get({ rankingFailureLog: [] });
+  const failures = Array.isArray(rankingFailureLog) ? rankingFailureLog : [];
+  rankingFailureSummary.textContent = `失败记录：${failures.length} 条`;
+  rankingFailuresList.replaceChildren();
+  if (!failures.length) { rankingFailuresList.textContent = "暂无失败记录"; return; }
+  for (const failure of failures.slice(-100).reverse()) {
+    const row = document.createElement("div");
+    row.className = "ranking-failure-row";
+    row.textContent = rankingFailureLabel(failure);
+    if (failure.url) {
+      const link = document.createElement("a");
+      link.href = failure.url; link.target = "_blank"; link.rel = "noreferrer";
+      link.textContent = "打开主页"; row.append(" ", link);
+    }
+    rankingFailuresList.append(row);
+  }
+  if (failures.length > 100) {
+    const note = document.createElement("div"); note.className = "ranking-failure-note";
+    note.textContent = `页面显示最近 100 条，导出可获取全部 ${failures.length} 条`;
+    rankingFailuresList.prepend(note);
+  }
+}
+exportRankingFailuresButton?.addEventListener("click", async () => {
+  const { rankingFailureLog = [] } = await chrome.storage.local.get({ rankingFailureLog: [] });
+  const rows = [["时间", "榜单名次", "博主", "失败阶段", "失败原因", "尝试次数", "任务 ID", "主页"], ...((Array.isArray(rankingFailureLog) ? rankingFailureLog : []).map((failure) => [
+    failure.createdAt ? new Date(failure.createdAt).toLocaleString() : "", Number.isInteger(failure.rank) ? failure.rank : "",
+    failure.username || "", failure.stage || "", failure.reason || "", failure.attempts || 1, failure.jobId || "", failure.url || ""
+  ]))];
+  const csv = "\ufeff" + rows.map((row) => row.map(rankingFailureCsvCell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a"); link.href = url; link.download = `榜单失败记录-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+clearRankingFailuresButton?.addEventListener("click", async () => {
+  if (!confirm("确定清空全部榜单失败记录吗？")) return;
+  await chrome.storage.local.set({ rankingFailureLog: [] }); await updateRankingFailures();
 });
 function readRankingLimit() {
   const value = Number(document.getElementById("rankingLimit").value);
@@ -141,7 +194,7 @@ document.getElementById("importRanking").addEventListener("click", async (event)
             if (seenAccounts.has(normalizedUsername)) continue;
             seenAccounts.add(normalizedUsername);
             if (seenAccounts.size <= skipBefore) continue;
-            queue.set(normalizedUsername, { username: normalizedUsername, category: row.getAttribute("data-cat"),
+            queue.set(normalizedUsername, { username: normalizedUsername, rank: seenAccounts.size, category: row.getAttribute("data-cat"),
               posts7: number(row, "data-posts-7"), posts30: number(row, "data-posts-30"),
               replies7: number(row, "data-reply-7"), replies30: number(row, "data-reply-30") });
             if (queue.size >= maximum) break;
@@ -213,6 +266,7 @@ chrome.storage.local.get("rankingImport").then(({ rankingImport }) => {
   }
 });
 refreshRankingSources();
+updateRankingFailures();
 
 const rankingConcurrencyInput = document.getElementById("rankingConcurrency");
 chrome.storage.local.get({ rankingConcurrency: 1 }).then(({ rankingConcurrency }) => {
