@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>X助手 · 控制台</title>
+    <link rel="stylesheet" href="dashboard.css">
+  </head>
+  <body>
+    <main>
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">X AUTOMATION</p>
+          <h1>X助手</h1>
+          <p class="subtitle">自动任务控制台 · 作者 <a href="https://x.com/Pengchenop" target="_blank" rel="noreferrer">@Pengchenop</a></p>
+        </div>
+        <span class="web-badge">网页版</span>
+      </header>
+      <section class="target-panel" aria-label="操作标签页">
+        <div class="target-heading">
+          <label for="targetTab">操作标签页</label>
+          <button id="refreshTabs" class="quiet-button" type="button">刷新列表</button>
+        </div>
+        <select id="targetTab" aria-describedby="pageStatus"></select>
+      </section>
+      <p id="pageStatus" role="status">正在检查当前页面…</p>
+      <p id="taskStatus" role="status">正在读取任务状态…</p>
+      <p id="actionStatus" role="status" hidden></p>
+      <section class="task-category" aria-labelledby="engagementHeading">
+        <div class="category-heading">
+          <div><h2 id="engagementHeading">关注 / 评论</h2><p>按所选内容筛选并执行互动</p></div>
+          <span class="task-state" data-state-for="engagement">未运行</span>
+        </div>
+        <fieldset class="task-options">
+          <legend>互动子任务</legend>
+          <label><input id="homeFollowMutualPosts" type="checkbox"> 功能一：首页内容识别到互关贴进行关注</label>
+          <label><input id="homeReplyMutualPosts" type="checkbox"> 功能二：首页内容识别到互关贴进行评论</label>
+          <label><input id="autoFollowBack" type="checkbox"> 自动回关新关注者（可与功能二同时运行，限速后每 3 分钟重试）</label>
+          <p id="followerMonitorStatus" role="status"></p>
+          <p id="homeReplyDailyCount" class="daily-count" role="status">功能二今日评论：0 条</p>
+          <small>自动回关会打开后台关注者标签页，定期刷新检查；沿用下方回关操作间隔（秒），持续扫描，不使用单次回关的数量上限。</small>
+          <label><input id="ownPostCommentReply" type="checkbox"> 我的帖子：自动回复他人评论</label>
+          <small>两项首页互关功能可单独运行；同时勾选时先关注作者，再评论帖子。功能二只回复最近 4 小时内的帖子，每条成功评论至少间隔 20 秒，成功回复 10 条后自动刷新 X；累计成功评论 100 条后自动休息 10 分钟再继续。互关帖仅通过关键词识别。我的帖子任务只在自己发布的单帖页面回复他人评论，同一条评论不会重复回复。</small>
+        </fieldset>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="engagement">开始关注 / 评论</button>
+          <button class="danger" type="button" data-stop-task="engagement">停止</button>
+        </div>
+      </section>
+      <section class="task-category" aria-labelledby="followerTargetHeading">
+        <div class="category-heading">
+          <div><h2 id="followerTargetHeading">列表关注加评论</h2><p>从首页互关关键词帖作者出发，逐个关注认证关注者并评论</p></div>
+          <span class="task-state" data-state-for="followerTarget">未运行</span>
+        </div>
+        <p id="followerTargetStatus" class="filter-status" role="status">尚未启动</p>
+        <p id="followerTargetDailyCount" class="daily-count" role="status">列表关注加评论：已关注 0 人，已评论 0 条</p>
+        <div class="relationship-limits">
+          <label>本次成功关注数量（达到后停止）<input id="followerTargetFollowLimit" type="number" min="1" max="1000" step="1" value="10"></label>
+        </div>
+        <p id="followerTargetProgress" class="follower-target-progress" role="status">本轮进度：0/10 位已关注，达到上限后停止</p>
+        <p class="note">系统在首页识别互关关键词帖子，进入来源博主的认证关注者列表，先快速读取当前可见账号，按中文名称/简介、关键词和认证标识评分排序，再逐个处理前 5 个候选；候选失败后会从后续扫描结果补位。只进入中文资料账号，纯英文或其他语言账号会排除。每个来源博主最多成功关注 5 人；如果候选耗尽、连续滚动没有新合格账号或达到扫描上限，会立即换下一个来源，不会强行等待 5 人。进入主页后校验 followers、关注、查找最近 24 小时原创帖子并评论；第一次评论失败后等待 20 秒并换另一条帖子重试，连续两条失败就跳过评论并保留关注结果。</p>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="followerTarget">开始列表关注加评论</button>
+          <button class="danger" type="button" data-stop-task="followerTarget">停止</button>
+          <button class="secondary" type="button" id="followerTargetSelfCheck">自检</button>
+        </div>
+        <p id="followerTargetSelfCheckResult" class="filter-status" role="status" hidden></p>
+      </section>
+      <section class="task-category" aria-labelledby="unfollowHeading">
+        <div class="category-heading">
+          <div><h2 id="unfollowHeading">取消单向关注</h2><p>检查“正在关注”列表，取消没有关注你的账号</p></div>
+          <span class="task-state" data-state-for="unfollowNonMutual">未运行</span>
+        </div>
+        <div class="relationship-limits">
+          <label>执行数量（个）<input id="unfollowAccountLimit" type="number" min="1" max="1000" step="1"></label>
+          <label>操作间隔（秒）<input id="unfollowIntervalSeconds" type="number" min="1" max="3600" step="1"></label>
+        </div>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="unfollowNonMutual">开始清理</button>
+          <button class="danger" type="button" data-stop-task="unfollowNonMutual">停止</button>
+        </div>
+      </section>
+      <section class="task-category" aria-labelledby="followBackHeading">
+        <div class="category-heading">
+          <div><h2 id="followBackHeading">回关关注者</h2><p>检查“关注者”列表，回关你尚未关注的账号</p></div>
+          <span class="task-state" data-state-for="followBackFollowers">未运行</span>
+        </div>
+        <div class="relationship-limits">
+          <label>执行数量（个）<input id="followBackAccountLimit" type="number" min="1" max="1000" step="1"></label>
+          <label>操作间隔（秒）<input id="followBackIntervalSeconds" type="number" min="1" max="3600" step="1"></label>
+        </div>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="followBackFollowers">开始回关</button>
+          <button class="danger" type="button" data-stop-task="followBackFollowers">停止</button>
+        </div>
+      </section>
+      <section class="task-category" aria-labelledby="specifiedHeading">
+        <div class="category-heading">
+          <div><h2 id="specifiedHeading">指定博主互动</h2><p>优先处理近 2 小时，必要时扩大到近 4 小时的帖子</p></div>
+          <span class="task-state" data-state-for="specified">未运行</span>
+        </div>
+        <label for="specifiedAuthors">博主账号</label>
+        <textarea id="specifiedAuthors" rows="4" placeholder="输入 @账号名、账号链接，可用空格、逗号或换行分隔"></textarea>
+        <div class="specified-import-actions">
+          <label class="file-button" for="specifiedExcelFile">导入 Excel 名单</label>
+          <input id="specifiedExcelFile" type="file" accept=".xlsx,.csv,text/csv" hidden>
+          <button id="downloadSpecifiedTemplate" type="button">下载 Excel 模板</button>
+          <button id="importSpecifiedFailures" type="button" disabled>导入失败博主（0）</button>
+          <button id="exportSpecifiedFailures" type="button">导出失败记录</button>
+        </div>
+        <p class="note">Excel 格式：第一个工作表首列标题写“博主账号”，从第二行开始每行填写一个 @账号名、账号名或 X 主页链接；支持 .xlsx 和 Excel 可打开的 .csv，不支持旧版 .xls。凡本轮没有成功评论的博主都会进入失败组，可导入重试或导出记录。</p>
+        <div class="relationship-limits">
+          <label>每位博主最多评论数<input id="specifiedPerAuthorLimit" type="number" min="1" max="5" step="1" value="5"></label>
+          <label>评论间隔（秒）<input id="specifiedInterval" type="number" min="20" max="3600" step="1" value="20"></label>
+          <label>同时处理博主数<input id="specifiedConcurrency" type="number" min="1" max="10" step="1" value="1"></label>
+          <label>每路博主间隔（秒）<input id="specifiedAuthorInterval" type="number" min="20" max="3600" step="1" value="30"></label>
+        </div>
+        <p id="specifiedImportStatus" class="filter-status" role="status">尚未准备指定博主</p>
+        <p id="specifiedFailureSummary" class="filter-status" role="status">失败组：0 位博主，0 条记录</p>
+        <p id="specifiedDailyCount" class="daily-count" role="status">指定博主今日评论：0 条，涉及 0 位博主</p>
+        <p id="specifiedProgress" class="ranking-progress" role="status">指定博主进度：未启动</p>
+        <p class="note">每位最多成功评论设定数量：优先查找近 2 小时内容，找不到合适内容时自动扩大到 4 小时；候选帖子会保留，某条失败后继续尝试下一条，成功数达到设定值才切换博主。同一帖子不会重复发送。模型格式不合格会重试一次，仍失败就换该博主下一条帖子。只有该博主所有候选都没有成功评论时才进入失败组。评论间隔至少 20 秒；并行工作路数和每路切换博主间隔可单独设置。停止后可继续上次未完成任务，也可从头开始当前名单。</p>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="specified" data-specified-start-mode="resume">继续上次未完成</button>
+          <button class="primary" type="button" data-start-task="specified" data-specified-start-mode="restart">从头开始</button>
+          <button class="danger" type="button" data-stop-task="specified">停止</button>
+        </div>
+      </section>
+      <section class="task-category" aria-labelledby="rankingHeading">
+        <div class="category-heading">
+          <div><h2 id="rankingHeading">榜单博主互动</h2><p>选择分类 → 优先评论最新帖子 → 确认成功后进入下一位</p></div>
+          <span class="task-state" data-state-for="ranking">未运行</span>
+        </div>
+        <div class="category-actions">
+          <button id="openRanking" type="button">打开榜单选择分类</button>
+          <button id="refreshRankingSources" type="button">刷新榜单标签页</button>
+        </div>
+        <label for="rankingSource">已选择分类的榜单页面</label>
+        <select id="rankingSource"></select>
+        <div class="relationship-limits ranking-filters">
+          <label>榜单类型<select id="rankingMode"><option value="">沿用网站当前选择</option><option value="rising">黑马榜</option><option value="all">普通账号榜</option></select></label>
+          <label>排序<select id="rankingSort"><option value="">沿用网站当前选择</option><option value="粉丝">粉丝</option><option value="推文曝光">推文曝光</option><option value="发帖">发帖</option><option value="评论">评论</option><option value="涨粉">涨粉</option><option value="帖均曝光">帖均曝光</option><option value="最高单帖">最高单帖</option></select></label>
+          <label>榜单时间<select id="rankingPeriod"><option value="">沿用网站当前选择</option><option value="今天">今天</option><option value="昨日">昨日</option><option value="7天">7天</option><option value="30天">30天</option></select></label>
+          <label>赛道<select id="rankingCategory"><option value="">沿用网站当前选择</option><option value="全部">全部</option><option value="AI">AI</option><option value="财经">财经</option><option value="自媒体">自媒体</option></select></label>
+          <label>粉丝范围<select id="rankingAudience"><option value="">沿用网站当前选择</option><option value="5000 粉以下">5000 粉以下</option><option value="5000 到 1 万粉">5000 到 1 万粉</option><option value="全部">全部</option><option value="1千以下">1千以下</option><option value="1千-1万">1千-1万</option><option value="1万-10万">1万-10万</option><option value="10万-100万">10万-100万</option><option value="100万+">100万+</option></select></label>
+        </div>
+        <div class="relationship-limits">
+          <label>导入 / 检查博主数量（自定义）<input id="rankingLimit" type="number" min="1" step="1" value="20"></label>
+          <label>跳过前面博主数量<input id="rankingOffset" type="number" min="0" step="1" value="0"></label>
+          <label>同时处理博主数<input id="rankingConcurrency" type="number" min="1" max="10" step="1" value="1"></label>
+          <label>每路博主间隔（秒）<input id="rankingInterval" type="number" min="5" max="3600" value="30"></label>
+        </div>
+        <button id="importRanking" type="button">导入当前分类（自动向后翻页）</button>
+        <p id="rankingImportStatus" role="status">尚未导入博主</p>
+        <p id="rankingDailyCount" class="daily-count" role="status">榜单博主今日评论：0 条</p>
+        <p id="rankingProgress" class="ranking-progress" role="status">榜单进度：未启动</p>
+        <div class="ranking-failures" aria-labelledby="rankingFailureSummary">
+          <div class="ranking-failures-heading">
+            <strong id="rankingFailureSummary">失败记录：0 条</strong>
+            <span>
+              <button id="exportRankingFailures" class="quiet-button" type="button">导出 CSV</button>
+              <button id="clearRankingFailures" class="quiet-button" type="button">清空记录</button>
+            </span>
+          </div>
+          <div id="rankingFailuresList" class="ranking-failures-list" role="log" aria-live="polite">暂无失败记录</div>
+        </div>
+        <p class="note">可直接在上方选择榜单类型、排序、时间、赛道和粉丝范围；选择“沿用网站当前选择”时保留网站设置。黑马粉丝范围适用于黑马榜，普通粉丝范围适用于普通账号榜。导入时应用筛选并从第一页开始；填写“跳过前面博主数量”即可自动翻过前 N 位，例如跳过 200、导入 200 就读取第 201–400 位。同一博主可在一天内多次导入和互动，之前已完成的博主也会保留在本轮名单中。不判断活跃度或互动情况，按发布时间优先选择已加载的最新可评论帖子，仅跳过已评论或发送结果不确定的同一帖子。评论沿用固定回复/AI 回复设置。每轮对每位博主最多评论一条帖子，重新启动时可评论该博主的其他未处理帖子。单个博主识别或加载失败，首次失败后等待 15 秒只重试 1 次；第二次仍失败就自动跳过并进入下一位，避免任务卡住。此任务将上方选中的 X 标签页作为控制页，并打开独立后台标签页并行处理博主；与首页任务切换运行。停止会关闭任务标签页。</p>
+        <div class="category-actions">
+          <button class="primary" type="button" data-start-task="ranking" data-ranking-start-mode="resume" id="resumeRanking">继续上次未完成</button>
+          <button class="primary" type="button" data-start-task="ranking" data-ranking-start-mode="restart">从头开始回复</button>
+          <button class="danger" type="button" data-stop-task="ranking">停止</button>
+        </div>
+      </section>
+      <label class="idle-refresh-setting" for="idleRefreshMinutes">无新内容或评论后刷新</label>
+      <select id="idleRefreshMinutes">
+        <option value="1">1 分钟</option>
+        <option value="3" selected>3 分钟</option>
+        <option value="5">5 分钟</option>
+        <option value="10">10 分钟</option>
+      </select>
+      <button id="openX" class="primary" type="button">打开 X</button>
+      <button id="openOptions" type="button">回复 / API 设置</button>
+      <p class="note">首页任务会自动下滑加载内容；长时间没有新内容时自动刷新。停止后会取消后续操作。</p>
+    </main>
+    <script src="ranking-checkpoint.js"></script>
+    <script src="ranking-dashboard.js"></script>
+    <script src="specified-spreadsheet.js"></script>
+    <script src="specified-dashboard.js"></script>
+    <script src="dashboard.js"></script>
+  </body>
+</html>
