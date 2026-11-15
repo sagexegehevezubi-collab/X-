@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>X助手设置</title>
+    <style>
+      body { max-width: 680px; margin: 40px auto; padding: 0 20px; color: #17202a; font: 15px/1.6 system-ui, sans-serif; }
+      label { display: block; margin: 18px 0 6px; font-weight: 600; }
+      input, select, textarea { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #9aa7b2; border-radius: 8px; font: inherit; }
+      textarea { resize: vertical; }
+      button { margin-top: 20px; border: 0; border-radius: 999px; padding: 10px 18px; background: #1d9bf0; color: white; font: inherit; cursor: pointer; }
+      .note { color: #536471; }
+      .provider-note { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: #eef7fc; color: #28536b; }
+      .disclaimer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #d8dee4; color: #536471; }
+      .disclaimer h2 { color: #17202a; font-size: 18px; }
+      .disclaimer p { margin: 10px 0; }
+      #status { margin-left: 12px; color: #087443; }
+    </style>
+  </head>
+  <body>
+    <h1>X助手</h1>
+    <label for="replyMode">回复方式</label>
+    <select id="replyMode">
+      <option value="ai">AI 回复</option>
+      <option value="fixed">固定回复</option>
+    </select>
+    <div id="fixedReplySettings" hidden>
+      <label for="fixedReplyText">固定回复内容</label>
+      <textarea id="fixedReplyText" rows="4" placeholder="输入你希望发布的回复内容"></textarea>
+    </div>
+    <label for="provider">模型服务商</label>
+    <select id="provider"></select>
+    <p id="providerNote" class="provider-note"></p>
+    <label for="endpoint">API 地址</label>
+    <input id="endpoint" type="url" placeholder="https://api.example.com/v1/chat/completions">
+    <label for="model">模型名称</label>
+    <input id="model" type="text" placeholder="deepseek-chat / ep-xxxx">
+    <label for="authMode">鉴权方式</label>
+    <select id="authMode">
+      <option value="bearer">Bearer Token（Authorization）</option>
+      <option value="x-api-key">X-API-Key</option>
+      <option value="custom">自定义请求头</option>
+      <option value="none">无需 API Key</option>
+    </select>
+    <div id="customHeaderSettings" hidden>
+      <label for="authHeaderName">自定义鉴权请求头名称</label>
+      <input id="authHeaderName" type="text" placeholder="例如 X-API-Key">
+    </div>
+    <label for="apiKey">API Key</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="sk-…">
+    <p class="note">扩展使用 OpenAI Chat Completions 兼容协议。Key 只保存在此浏览器的扩展本地存储中；豆包模型请填写火山方舟 Endpoint ID。</p>
+    <button id="save">保存设置</button><span id="status" role="status"></span>
+    <section class="disclaimer" aria-labelledby="disclaimerHeading">
+      <h2 id="disclaimerHeading">免责声明</h2>
+      <p>本插件仅作为效率工具及技术交流使用，不保证任何涨粉、互动、流量或创作者收益效果。</p>
+      <p>使用者应自行遵守 X（Twitter）平台的服务条款、社区规则及相关法律法规，并自行合理设置操作频率、使用范围及 AI 生成内容。</p>
+      <p>因使用本插件产生的账号限流、功能限制、封禁、内容争议、数据丢失或其他直接/间接损失，由使用者自行承担相应风险。</p>
+      <p>AI 自动生成的评论及回复可能存在不准确、不恰当或不符合预期的情况，请使用者自行审核并对最终发布内容负责。</p>
+      <p>本插件不鼓励垃圾评论、恶意刷量、骚扰他人或其他违反平台规则的行为。</p>
+      <p>使用本插件即代表您已阅读、理解并接受以上说明。</p>
+      <p>作者：<a href="https://x.com/Pengchenop" target="_blank" rel="noreferrer">@Pengchenop</a></p>
+    </section>
+    <script src="providers.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>
